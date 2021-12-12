@@ -13,7 +13,7 @@ General ideas:
 
 Reward Function:
 
-    - direction
+    - distance down the track
         * +1 for moving forward
         * -1 for moving backward (brake)
     - speed (use speed instead of acceleration - works better in grass and other conditions)
@@ -28,9 +28,6 @@ Reward Function:
         * +3 for collecting items
     - position (using finish time of different karts)
         * +10 for finishing the race * race position
-        * +3 if position increases
-        * -3 if position decreases
-    - overtaking karts (using kart positions)
         * +3 if position increases
         * -3 if position decreases
     - using powerups
