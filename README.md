@@ -2,4 +2,4 @@
 
 ### TODO:
 
-- [ ] OpenAI gym like environment
+- [ ] change all dtypes to float16 or int8
