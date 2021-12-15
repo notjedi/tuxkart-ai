@@ -150,7 +150,7 @@ class STKEnv(Env):
 
         # TODO: call rescue bird action?
         # movement(up/down), steer(left/right), drift, fire, nitro
-        self.action_space = MultiDiscrete([2, 2, 1, 1, 1])
+        self.action_space = MultiDiscrete([3, 3, 2, 2, 2])
 
     def step(self, actions):
         image, reward, done, info = self.env.step(actions)
@@ -238,6 +238,7 @@ def test_env():
     # TODO: create a config (prolly yaml?) file for all params
     track = choice(STKPlayer.tracks)
     env = create_env(track)
+    print(env.action_space.sample())
 
     actions = ['m', 'w']
     for _ in range(1000):
