@@ -6,46 +6,9 @@ from gym.spaces import Box, MultiDiscrete
 from time import time, sleep, perf_counter
 from matplotlib import pyplot as plt
 from random import choice
-from config import DEBUG
+from config import STK, STKGraphicConfig, STKRaceConfig
 
 class STKPlayer():
-
-    tracks = ['abyss', 'black_forest', 'candela_city', 'cocoa_temple', 'cornfield_crossing', 'fortmagma',
-              'gran_paradiso_island', 'hacienda', 'lighthouse', 'minigolf', 'olivermath', 'overworld',
-              'ravenbridge_mansion', 'sandtrack', 'scotland', 'snowmountain', 'snowtuxpeak',
-              'stk_enterprise', 'volcano_island', 'xr591', 'zengarden']
-
-    graphics = { "hd": pystk.GraphicsConfig.hd,
-                "sd": pystk.GraphicsConfig.sd,
-                "ld": pystk.GraphicsConfig.ld,
-                "none": pystk.GraphicsConfig.none }
-
-    @staticmethod
-    def make_graphic_config(quality="hd", width=600, height=400):
-        config = STKPlayer.graphics[quality]()
-        config.screen_width = width
-        config.screen_height = height
-        return config
-
-    @staticmethod
-    def make_race_config(track, numKarts=5, laps=1, reverse=False, difficulty=1, stepSize=0.07):
-
-        assert 0 <= difficulty <= 2
-        config = pystk.RaceConfig()
-        config.difficulty = difficulty
-        config.step_size = stepSize
-        config.num_kart = numKarts
-        config.reverse = reverse
-        config.track = track
-        config.laps = laps
-        config.players[0].team = 0
-        config.players[0].controller = pystk.PlayerConfig.Controller.PLAYER_CONTROL
-
-        return config
-
-    @property
-    def is_race_finished(self):
-        return int(self.playerKart.finish_time) != 0
 
     def __init__(self, graphicConfig, raceConfig):
 
@@ -56,12 +19,9 @@ class STKPlayer():
         self.currentAction = pystk.Action()
         self.image = np.zeros((graphicConfig.screen_width, graphicConfig.screen_height, 3))
 
-    def _get_position(self) -> int:
-        overallDist = sorted([kart.overall_distance for kart in self.state.karts], reverse=True)
-        return overallDist.index(self.playerKart.overall_distance) + 1
-
-    def _get_finish_time(self) -> int:
-        return int(self.playerKart.finish_time)
+    @property
+    def is_race_finished(self):
+        return int(self.playerKart.finish_time) != 0
 
     def _check_nitro(self) -> bool:
         kartLoc = np.array(self.playerKart.location)
@@ -76,14 +36,8 @@ class STKPlayer():
                     return True
         return False
 
-    def _get_overall_distance(self):
-        return max(0, int(self.playerKart.overall_distance))
-
-    def _get_attachment(self):
-        attachment = self.playerKart.attachment
-        if attachment == pystk.Attachment.Type.NOTHING:
-            return None
-        return attachment
+    def _get_jumping(self) -> bool:
+        return self.playerKart.jumping
 
     def _get_powerup(self):
         powerup = self.playerKart.powerup
@@ -91,18 +45,21 @@ class STKPlayer():
             return None
         return powerup
 
-    def get_info(self) -> dict:
-        info = {}
+    def _get_position(self) -> int:
+        overallDist = sorted([kart.overall_distance for kart in self.state.karts], reverse=True)
+        return overallDist.index(self.playerKart.overall_distance) + 1
 
-        info["done"] = self.done()
-        info["position"] = self._get_position()
-        info["nitro"] = self._check_nitro()
-        info["finish_time"] = self._get_finish_time()
-        info["overall_distance"] = self._get_overall_distance()
-        info["powerup"] = self._get_powerup()
-        info["attachment"] = self._get_attachment()
+    def _get_attachment(self):
+        attachment = self.playerKart.attachment
+        if attachment == pystk.Attachment.Type.NOTHING:
+            return None
+        return attachment
 
-        return info
+    def _get_finish_time(self) -> int:
+        return int(self.playerKart.finish_time)
+
+    def _get_overall_distance(self) -> int:
+        return max(0, int(self.playerKart.overall_distance))
 
     def _update_actions(self, actions: list):
         self.currentAction.acceleration = int('w' in actions)
@@ -112,6 +69,20 @@ class STKPlayer():
         self.currentAction.drift = 'm' in actions
         self.currentAction.nitro = 'n' in actions
         self.currentAction.rescue = 'r' in actions
+
+    def get_info(self) -> dict:
+        info = {}
+
+        info["done"] = self.done()
+        info["nitro"] = self._check_nitro()
+        info["jumping"] = self._get_jumping()
+        info["powerup"] = self._get_powerup()
+        info["position"] = self._get_position()
+        info["attachment"] = self._get_attachment()
+        info["finish_time"] = self._get_finish_time()
+        info["overall_distance"] = self._get_overall_distance()
+
+        return info
 
     def done(self):
         return int(self.playerKart.finish_time) != 0
@@ -128,9 +99,9 @@ class STKPlayer():
         self.race.step(self.currentAction)
         self.state.update()
         self.image = self.race.render_data[0].image
+
         info = self.get_info()
         done = self.done()
-
         return self.image, 0, done, info
 
     def close(self):
@@ -148,9 +119,8 @@ class STKEnv(Env):
                                     high=np.full(self.observation_shape, 255,
                                     dtype=np.float16))
 
-        # TODO: call rescue bird action?
-        # movement(up/down), steer(left/right), drift, fire, nitro
-        self.action_space = MultiDiscrete([3, 3, 2, 2, 2])
+        # movement(up/down), steer(left/right), drift, fire, nitro, rescue
+        self.action_space = MultiDiscrete([3, 3, 2, 2, 2, 2])
 
     def step(self, actions):
         image, reward, done, info = self.env.step(actions)
@@ -159,6 +129,9 @@ class STKEnv(Env):
     def reset(self):
         self.env.reset()
 
+    def render(self):
+        return self.env.image
+
     def close(self):
         self.env.close()
 
@@ -166,33 +139,32 @@ class STKReward(Wrapper):
 
     FINISH = 10
     POSITION = 5
-    POWERUP = 3
+    COLLECT_POWERUP = 3
     DRIFT = 3
     NITRO = 3
-    USE_POWERUP = 1     # TODO: modify
-    SPEED = 1           # TODO: implement
+    USE_POWERUP = 1
+    JUMP = -3
+    RESCUE = -5
 
     def __init__(self, env: STKEnv):
         super(STKReward, self).__init__(env)
         self.reward = 0
-        self.env = env
         self.prevInfo = None
 
     def _get_reward(self, actions, info):
 
+        reward = 0
         if self.prevInfo is None:
             self.prevInfo = info
-        reward = 0
 
         # TODO: rewards for benificial attachments
-        # TODO: rewards for jumping
-        # TODO: rewards based on prev finish time?
-        # TODO: rewards based on speed
         # action rewards
         if 'n' in actions and info["nitro"]:
             reward += STKReward.NITRO
         if 'm' in actions:
             reward += STKReward.DRIFT
+        if 'r' in actions:
+            reward += STKReward.RESCUE
         if ' ' in actions and info["powerup"]:
             # TODO: give only if it damages other karts
             reward += STKReward.USE_POWERUP
@@ -212,20 +184,23 @@ class STKReward(Wrapper):
 
         # rewards for collecting powerups
         if info["powerup"] is not None:
-            reward += STKReward.POWERUP
+            reward += STKReward.COLLECT_POWERUP
+
+        # misc rewards
+        if info["jumping"]:
+            reward += STKReward.JUMP
 
         self.prevInfo = info
         return reward
 
     def step(self, actions):
-
         state, reward, done, info = self.env.step(actions)
         reward += self._get_reward(actions, info)
         return state, reward, done, info
 
 
 def create_env(track):
-    env = STKPlayer(STKPlayer.make_graphic_config("hd"), STKPlayer.make_race_config(track))
+    env = STKPlayer(STKGraphicConfig(), STKRaceConfig(track))
     env = STKEnv(env)
     env = STKReward(env)
     env.reset()
@@ -234,9 +209,9 @@ def create_env(track):
 
 def test_env():
 
+    # TODO: use Reward and Action Wrapper
     # TODO: hook up human agent to the env
-    # TODO: create a config (prolly yaml?) file for all params
-    track = choice(STKPlayer.tracks)
+    track = choice(STK.TRACKS)
     env = create_env(track)
     print(env.action_space.sample())
 
