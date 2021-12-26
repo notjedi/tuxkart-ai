@@ -7,17 +7,34 @@ from torch import nn
 
 
 class FCView(nn.Module):
+        """
+        Flatten conv layer.
+        """
 
     def __init__(self):
         super(FCView, self).__init__()
 
     def forward(self, x):
+        """
+        :param x: of shape(batch_size, channels, H, W)
+        :return: Tensor of shape (batch_size, channels * H * W)
+        """
         shape = x.data.size(0)
         x = x.view(shape, -1)
         return x
 
 
 class ConvBlock(nn.Module):
+    """
+    Wrapper class for a Convolution layer.
+    ((W - F + 2P) / S) + 1
+
+    :param in_channels: Number of input channels
+    :param in_channels: Number of output channels
+    :param kernel_size: Size of the kernel/filter
+    :param padding: The size of the zero-padding
+    :param stride: Value of stride
+    """
 
     def __init__(self, in_channels, out_channels, kernel_size, padding=0, stride=1):
         super(ConvBlock, self).__init__()
@@ -26,18 +43,33 @@ class ConvBlock(nn.Module):
         self.batch_norm = nn.BatchNorm2d(out_channels)
 
     def forward(self, x):
+        """
+        Forward pass for the conv layer
+
+        :param x: of shape(batch_size, in_channels, H, W)
+        :return: Tensor of shape (batch_size, out_channels, H, W)
+        """
         x = F.relu(self.conv(x.float()))
         return self.batch_norm(x)
 
 
 class ResBlock(nn.Module):
+    """
+    A class implementing ResNet from the ImageNet paper.
+
+    :param in_channels: Number of input channels
+    :param in_channels: Number of output channels
+    :param kernel_size: Size of the kernel/filter
+    :param padding: The size of the zero-padding
+    :param stride: Value of stride
+    """
 
     def __init__(self, in_channels, out_channels, kernel_size, padding=1, stride=1):
         super(ResBlock, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size,
-                               stride=stride, padding=padding, bias=False)
+                               padding=padding, stride=stride, bias=False)
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size,
-                               stride=stride, padding=padding, bias=False)
+                               padding=padding, stride=stride, bias=False)
 
         self.bn1 = nn.BatchNorm2d(out_channels)
         self.bn2 = nn.BatchNorm2d(out_channels)
@@ -65,6 +97,12 @@ class ResBlock(nn.Module):
 
 
 class Actor(nn.Module):
+    """
+    Actor head for the PPO class to determine the best policy and action distribution.
+
+    :param inputDims: The shape of the input image (W, H, C)
+    :param numLogits: The number of logits in the last layer of the network
+    """
 
     def __init__(self, inputDims, numLogits):
         super(Actor, self).__init__()
@@ -102,6 +140,11 @@ class Actor(nn.Module):
 
 
 class Critic(nn.Module):
+    """
+    Critic head for the PPO class to determine the expected rewards.
+
+    :param inputDims: The shape of the input image (W, H, C)
+    """
 
     def __init__(self, inputDims):
         super(Critic, self).__init__()
@@ -118,6 +161,15 @@ class Critic(nn.Module):
 
 
 class PPO(nn.Module):
+    """
+    Proximal Policy Optimization algorithm (PPO)
+
+    Paper: https://arxiv.org/abs/1707.06347
+    Introduction to PPO: https://spinningup.openai.com/en/latest/algorithms/ppo.html
+
+    :param inputDims: The shape of the input image (W, H, C)
+    :param numLogits: The number of logits in the last layer of the network
+    """
 
     def __init__(self, inputDims, numLogits):
         super(PPO, self).__init__()
