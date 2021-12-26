@@ -8,7 +8,7 @@ from matplotlib import pyplot as plt
 from random import choice
 from config import STK, STKGraphicConfig, STKRaceConfig
 
-class STKPlayer():
+class STKAgent():
 
     def __init__(self, graphicConfig, raceConfig):
 
@@ -20,7 +20,7 @@ class STKPlayer():
         self.image = np.zeros((graphicConfig.screen_width, graphicConfig.screen_height, 3))
 
     @property
-    def is_race_finished(self):
+    def is_race_finished(self) -> bool:
         return int(self.playerKart.finish_time) != 0
 
     def _check_nitro(self) -> bool:
@@ -61,14 +61,14 @@ class STKPlayer():
     def _get_overall_distance(self) -> int:
         return max(0, int(self.playerKart.overall_distance))
 
-    def _update_actions(self, actions: list):
-        self.currentAction.acceleration = int('w' in actions)
-        self.currentAction.brake = 's' in actions
-        self.currentAction.steer = int('d' in actions) - int('a' in actions)
-        self.currentAction.fire = ' ' in actions
-        self.currentAction.drift = 'm' in actions
-        self.currentAction.nitro = 'n' in actions
-        self.currentAction.rescue = 'r' in actions
+    def _update_action(self, actions: list):
+        self.currentAction.acceleration = int('w' in action)
+        self.currentAction.brake = 's' in action
+        self.currentAction.steer = int('d' in action) - int('a' in actions)
+        self.currentAction.fire = ' ' in action
+        self.currentAction.drift = 'm' in action
+        self.currentAction.nitro = 'n' in action
+        self.currentAction.rescue = 'r' in action
 
     def get_info(self) -> dict:
         info = {}
@@ -84,7 +84,7 @@ class STKPlayer():
 
         return info
 
-    def done(self):
+    def done(self) -> bool:
         return int(self.playerKart.finish_time) != 0
 
     def reset(self):
@@ -94,8 +94,8 @@ class STKPlayer():
         self.state.update()
         self.playerKart = self.state.players[0].kart
 
-    def step(self, actions:list):
-        self._update_actions(actions)
+    def step(self, action:list):
+        self._update_action(actions)
         self.race.step(self.currentAction)
         self.state.update()
         self.image = self.race.render_data[0].image
@@ -111,7 +111,7 @@ class STKPlayer():
 
 class STKEnv(Env):
 
-    def __init__(self, env: STKPlayer):
+    def __init__(self, env: STKAgent):
         super(STKEnv, self).__init__()
         self.env = env
         self.observation_shape = (600, 400, 3)
@@ -119,11 +119,13 @@ class STKEnv(Env):
                                     high=np.full(self.observation_shape, 255,
                                     dtype=np.float16))
 
-        # movement(up/down), steer(left/right), drift, fire, nitro, rescue
-        self.action_space = MultiDiscrete([3, 3, 2, 2, 2, 2])
+        # {'acceleration': 0.0, 'brake': False, 'steer': 0.0, 'fire': False, 'drift': False,
+        # 'nitro': False, 'rescue': False}
+        self.action_space = MultiDiscrete([2, 2, 3, 2, 2, 2, 2])
 
-    def step(self, actions):
-        image, reward, done, info = self.env.step(actions)
+    def step(self, action):
+        assert self.action_space.contains(action), f'Invalid Action {action}'
+        image, reward, done, info = self.env.step(action)
         return image, reward, done, info
 
     def reset(self):
@@ -151,7 +153,7 @@ class STKReward(Wrapper):
         self.reward = 0
         self.prevInfo = None
 
-    def _get_reward(self, actions, info):
+    def _get_reward(self, action, info):
 
         reward = 0
         if self.prevInfo is None:
@@ -159,13 +161,13 @@ class STKReward(Wrapper):
 
         # TODO: rewards for benificial attachments
         # action rewards
-        if 'n' in actions and info["nitro"]:
+        if 'n' in action and info["nitro"]:
             reward += STKReward.NITRO
-        if 'm' in actions:
+        if 'm' in action:
             reward += STKReward.DRIFT
-        if 'r' in actions:
+        if 'r' in action:
             reward += STKReward.RESCUE
-        if ' ' in actions and info["powerup"]:
+        if ' ' in action and info["powerup"]:
             # TODO: give only if it damages other karts
             reward += STKReward.USE_POWERUP
 
@@ -193,14 +195,14 @@ class STKReward(Wrapper):
         self.prevInfo = info
         return reward
 
-    def step(self, actions):
-        state, reward, done, info = self.env.step(actions)
-        reward += self._get_reward(actions, info)
+    def step(self, action):
+        state, reward, done, info = self.env.step(action)
+        reward += self._get_reward(action, info)
         return state, reward, done, info
 
 
 def create_env(track):
-    env = STKPlayer(STKGraphicConfig(), STKRaceConfig(track))
+    env = STKAgent(STKGraphicConfig(), STKRaceConfig(track))
     env = STKEnv(env)
     env = STKReward(env)
     env.reset()
@@ -215,9 +217,9 @@ def test_env():
     env = create_env(track)
     print(env.action_space.sample())
 
-    actions = ['m', 'w']
+    action = ['m', 'w']
     for _ in range(1000):
-        image, reward, _, info = env.step(actions)
+        image, reward, _, info = env.step(action)
         plt.imshow(image)
         plt.pause(0.1)
         print(reward, info)
