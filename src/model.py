@@ -7,9 +7,9 @@ from torch import nn
 
 
 class FCView(nn.Module):
-        """
-        Flatten conv layer.
-        """
+    """
+    Flatten conv layer.
+    """
 
     def __init__(self):
         super(FCView, self).__init__()
@@ -36,11 +36,11 @@ class ConvBlock(nn.Module):
     :param stride: Value of stride
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, padding=0, stride=1):
+    def __init__(self, in_channels, out_channels, kernel_size, padding=1, stride=1):
         super(ConvBlock, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size,
+        self.conv = nn.Conv3d(in_channels, out_channels, kernel_size=kernel_size,
                 padding=padding, stride=stride)
-        self.batch_norm = nn.BatchNorm2d(out_channels)
+        self.batch_norm = nn.BatchNorm3d(out_channels)
 
     def forward(self, x):
         """
@@ -66,22 +66,22 @@ class ResBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size, padding=1, stride=1):
         super(ResBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size,
+        self.conv1 = nn.Conv3d(in_channels, out_channels, kernel_size=kernel_size,
                                padding=padding, stride=stride, bias=False)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size,
+        self.conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=kernel_size,
                                padding=padding, stride=stride, bias=False)
 
-        self.bn1 = nn.BatchNorm2d(out_channels)
-        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.bn1 = nn.BatchNorm3d(out_channels)
+        self.bn2 = nn.BatchNorm3d(out_channels)
         self._initialize_weights()
 
     def _initialize_weights(self):
         for m in self.modules():
-            if isinstance(m, nn.Conv2d):
+            if isinstance(m, nn.Conv3d):
                 nn.init.orthogonal_(m.weight)
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm2d):
+            elif isinstance(m, nn.BatchNorm3d):
                 nn.init.constant_(m.weight, 1)
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
@@ -113,7 +113,7 @@ class Actor(nn.Module):
         self.reshape = FCView()
         self.actor1 = ConvBlock(in_channels=256, out_channels=128, kernel_size=3, padding=1, stride=1)
         self.actor2 = ConvBlock(in_channels=128, out_channels=32, kernel_size=3, padding=1, stride=1)
-        self.fc_actor = nn.Linear(np.prod((32,) + self.inputDims[:2]), self.numLogits)
+        self.fc_actor = nn.Linear(np.prod((32, 5) + self.inputDims[1:]), self.numLogits)
 
     def __call__(self, x, deterministic=False):
         return self.pi(x, deterministic)
@@ -134,6 +134,8 @@ class Actor(nn.Module):
             pi = torch.cat((steer.view(-1, 1), actions), dim=1)
             return pi
         else:
+            # https://mathworld.wolfram.com/BernoulliDistribution.html
+            # https://stats.stackexchange.com/a/113381
             steerDist = Categorical(steerProb)
             actionDist = Bernoulli(actionProb)
             return steerDist, actionDist
@@ -152,7 +154,7 @@ class Critic(nn.Module):
         self.inputDims = inputDims
         self.reshape = FCView()
         self.critic= ConvBlock(in_channels=256, out_channels=32, kernel_size=3, padding=1, stride=1)
-        self.fc_critic = nn.Linear(np.prod((32,) + self.inputDims[:2]), 1)
+        self.fc_critic = nn.Linear(np.prod((32, 5) + self.inputDims[1:]), 1)
 
     def forward(self, x):
         x = F.relu(self.critic(x))
@@ -174,11 +176,12 @@ class PPO(nn.Module):
     def __init__(self, inputDims, numLogits):
         super(PPO, self).__init__()
 
-        self.numResBlocks = 10
-        self.inputDims = inputDims
+        self.numResBlocks = 2
+        # channel-first layout
+        self.inputDims = tuple(reversed(inputDims))
 
-        self.conv = ConvBlock(in_channels=self.inputDims[2], out_channels=256, kernel_size=3,
-                padding=1, stride=1)
+        self.conv = ConvBlock(in_channels=self.inputDims[0], out_channels=256,
+                kernel_size=3, padding=1, stride=1)
         for block in range(0, self.numResBlocks):
             setattr(self, "res-block-{}".format(block+1), ResBlock(in_channels=256,
                 out_channels=256, kernel_size=3, padding=1, stride=1))
@@ -188,13 +191,13 @@ class PPO(nn.Module):
         self._initialize_weights()
 
     def _initialize_weights(self):
-        print("Modules: ", self.modules)
+        # print("Modules: ", self.modules)
         for m in self.modules():
-            if isinstance(m, nn.Conv2d):
+            if isinstance(m, nn.Conv3d):
                 nn.init.orthogonal_(m.weight)
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm2d):
+            elif isinstance(m, nn.BatchNorm3d):
                 nn.init.constant_(m.weight, 1)
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
