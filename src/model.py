@@ -73,18 +73,6 @@ class ResBlock(nn.Module):
 
         self.bn1 = nn.BatchNorm3d(out_channels)
         self.bn2 = nn.BatchNorm3d(out_channels)
-        self._initialize_weights()
-
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv3d):
-                nn.init.orthogonal_(m.weight)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm3d):
-                nn.init.constant_(m.weight, 1)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
         out = self.conv1(x)
@@ -113,7 +101,7 @@ class Actor(nn.Module):
         self.reshape = FCView()
         self.actor1 = ConvBlock(in_channels=256, out_channels=128, kernel_size=3, padding=1, stride=1)
         self.actor2 = ConvBlock(in_channels=128, out_channels=32, kernel_size=3, padding=1, stride=1)
-        self.fc_actor = nn.Linear(np.prod((32, 5) + self.inputDims[1:]), self.numLogits)
+        self.fc_actor = nn.Linear(np.prod((32,) + self.inputDims), self.numLogits)
 
     def __call__(self, x, deterministic=False):
         return self.pi(x, deterministic)
@@ -154,7 +142,7 @@ class Critic(nn.Module):
         self.inputDims = inputDims
         self.reshape = FCView()
         self.critic= ConvBlock(in_channels=256, out_channels=32, kernel_size=3, padding=1, stride=1)
-        self.fc_critic = nn.Linear(np.prod((32, 5) + self.inputDims[1:]), 1)
+        self.fc_critic = nn.Linear(np.prod((32,) + self.inputDims), 1)
 
     def forward(self, x):
         x = F.relu(self.critic(x))
@@ -176,18 +164,29 @@ class PPO(nn.Module):
     def __init__(self, inputDims, numLogits):
         super(PPO, self).__init__()
 
-        self.numResBlocks = 2
+        self.timeDim = 5
+        self.numResBlocks = 10
+        self.downSampleLayer = (self.numResBlocks // 2)
         # channel-first layout
         self.inputDims = tuple(reversed(inputDims))
 
-        self.conv = ConvBlock(in_channels=self.inputDims[0], out_channels=256,
+        self.conv1 = ConvBlock(in_channels=self.inputDims[0], out_channels=256,
                 kernel_size=3, padding=1, stride=1)
-        for block in range(0, self.numResBlocks):
-            setattr(self, "res-block-{}".format(block+1), ResBlock(in_channels=256,
+        for block in range(0, self.downSampleLayer):
+            setattr(self, f"res-block-{block+1}", ResBlock(in_channels=256,
                 out_channels=256, kernel_size=3, padding=1, stride=1))
 
-        self.actor = Actor(self.inputDims, numLogits)
-        self.critic = Critic(self.inputDims)
+        self.conv2 = ConvBlock(in_channels=256, out_channels=256,
+                kernel_size=5, padding=1, stride=1)
+
+        for block in range(self.downSampleLayer, self.numResBlocks):
+            setattr(self, f"res-block-{block+1}", ResBlock(in_channels=256,
+                out_channels=256, kernel_size=3, padding=1, stride=1))
+
+        inputDims = tuple(map(lambda x: (x + 2 - 4 - 1)//1 + 1,
+            (self.timeDim,) + self.inputDims[1:]))
+        self.actor = Actor(inputDims, numLogits)
+        self.critic = Critic(inputDims)
         self._initialize_weights()
 
     def _initialize_weights(self):
@@ -202,18 +201,14 @@ class PPO(nn.Module):
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
 
-    def forward(self, x):
-        x = self.conv(x)
-        for block in range(0, self.numResBlocks):
-            x = getattr(self, "res-block-{}".format(block+1))(x)
-        policy = self.actor(x)
-        value = self.critic(x)
-        return policy, value
+    def forward(self, x, deterministic=False):
+        x = self.conv1(x)
+        for block in range(0, self.downSampleLayer):
+            x = getattr(self, f"res-block-{block+1}")(x)
 
-    def pi(self, x):
-        x = self.conv(x)
-        for block in range(0, self.numResBlocks):
-            x = getattr(self, "res-block-{}".format(block+1))(x)
-        policy = self.actor(x, True)
+        x = self.conv2(x)
+        for block in range(self.downSampleLayer, self.numResBlocks):
+            x = getattr(self, f"res-block-{block+1}")(x)
+        policy = self.actor(x, deterministic)
         value = self.critic(x)
         return policy, value
