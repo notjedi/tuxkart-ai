@@ -1,16 +1,26 @@
-import pystk
-import numpy as np
+from random import choice
+from time import perf_counter, sleep, time
 
+import numpy as np
+import pystk
 from gym import Env, Wrapper
 from gym.spaces import Box, MultiDiscrete
-from time import time, sleep, perf_counter
 from matplotlib import pyplot as plt
-from random import choice
+
 from config import STK, STKGraphicConfig, STKRaceConfig
 
-class STKAgent():
 
-    def __init__(self, graphicConfig, raceConfig):
+class STKAgent():
+    """
+    SuperTuxKart agent for handling actions and getting state information from the environment.
+    The `STKEnv` class passes on the actions to this class for it to handle and gets the current
+    state(image) and various other info.
+
+    :param graphicConfig: `pystk.GraphicsConfig` object specifying various graphic configs
+    :param raceConfig: `pystk.RaceConfig` object specifying the track and other configs
+    """
+
+    def __init__(self, graphicConfig: pystk.GraphicsConfig, raceConfig: pystk.RaceConfig):
 
         pystk.init(graphicConfig)
         self.graphicConfig = graphicConfig
@@ -18,10 +28,6 @@ class STKAgent():
         self.state = pystk.WorldState()
         self.currentAction = pystk.Action()
         self.image = np.zeros((graphicConfig.screen_width, graphicConfig.screen_height, 3))
-
-    @property
-    def is_race_finished(self) -> bool:
-        return int(self.playerKart.finish_time) != 0
 
     def _check_nitro(self) -> bool:
         kartLoc = np.array(self.playerKart.location)
@@ -85,10 +91,13 @@ class STKAgent():
         return info
 
     def done(self) -> bool:
-        return int(self.playerKart.finish_time) != 0
+        """
+        `playerKart.finish_time` > 0 when the kart finishes the race.
+        Initially the finish time is < 0.
+        """
+        return self.playerKart.finish_time > 0
 
     def reset(self):
-        # TODO: where should i start?
         self.race.start()
         self.race.step()
         self.state.update()
@@ -110,6 +119,29 @@ class STKAgent():
         pystk.clean()
 
 class STKEnv(Env):
+    """
+    A simple gym compatible STK environment for controlling the kart and interacting with the
+    environment. The goal is to place 1st among other karts.
+
+    Observation:
+        Image of shape `self.observation_shape`.
+
+    Actions:
+        -----------------------------------------------------------------
+        |         ACTIONS               |       POSSIBLE VALUES         |
+        -----------------------------------------------------------------
+        |       Acceleration            |           (0, 1)              |
+        |       Brake                   |           (0, 1)              |
+        |       Steer                   |         (-1, 0, 1)            |
+        |       Fire                    |           (0, 1)              |
+        |       Drift                   |           (0, 1)              |
+        |       Nitro                   |           (0, 1)              |
+        |       Rescue                  |           (0, 1)              |
+        -----------------------------------------------------------------
+
+    References:
+        1. https://blog.paperspace.com/creating-custom-environments-openai-gym
+    """
 
     def __init__(self, env: STKAgent):
         super(STKEnv, self).__init__()
@@ -119,8 +151,7 @@ class STKEnv(Env):
                                     high=np.full(self.observation_shape, 255,
                                     dtype=np.float16))
 
-        # {'acceleration': 0.0, 'brake': False, 'steer': 0.0, 'fire': False, 'drift': False,
-        # 'nitro': False, 'rescue': False}
+        # {acceleration, brake, steer, fire, drift, nitro, rescue}
         self.action_space = MultiDiscrete([2, 2, 3, 2, 2, 2, 2])
 
     def step(self, action):
