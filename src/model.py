@@ -1,9 +1,8 @@
-import torch
 import numpy as np
-
-from torch.distributions import Categorical, Bernoulli
-from torch.nn import functional as F
+import torch
 from torch import nn
+from torch.distributions import Bernoulli, Categorical
+from torch.nn import functional as F
 
 
 class FCView(nn.Module):
@@ -27,7 +26,11 @@ class FCView(nn.Module):
 class ConvBlock(nn.Module):
     """
     Wrapper class for a Convolution layer.
-    ((W - F + 2P) / S) + 1
+    References:
+        1. https://pytorch.org/docs/stable/generated/torch.nn.Conv3d.html
+        2. https://discuss.pytorch.org/t/how-to-do-convolution-on-tube-tensors-3d-conv/21446
+        3. https://discuss.pytorch.org/t/feeding-3d-volumes-to-conv3d/32378
+    W_out = ((W_in + 2P - (F - 1) - 1) / S) + 1 (assuming dilation=1)
 
     :param in_channels: Number of input channels
     :param in_channels: Number of output channels
@@ -87,6 +90,8 @@ class ResBlock(nn.Module):
 class Actor(nn.Module):
     """
     Actor head for the PPO class to determine the best policy and action distribution.
+    References:
+        1. https://discuss.pytorch.org/t/multidmensional-actions/88259
 
     :param inputDims: The shape of the input image (W, H, C)
     :param numLogits: The number of logits in the last layer of the network
@@ -99,8 +104,10 @@ class Actor(nn.Module):
         self.numLogits = numLogits
         self.numActions = numLogits - 2
         self.reshape = FCView()
-        self.actor1 = ConvBlock(in_channels=256, out_channels=128, kernel_size=3, padding=1, stride=1)
-        self.actor2 = ConvBlock(in_channels=128, out_channels=32, kernel_size=3, padding=1, stride=1)
+        self.actor1 = ConvBlock(in_channels=256, out_channels=128,
+                kernel_size=3, padding=1, stride=1)
+        self.actor2 = ConvBlock(in_channels=128, out_channels=32,
+                kernel_size=3, padding=1, stride=1)
         self.fc_actor = nn.Linear(np.prod((32,) + self.inputDims), self.numLogits)
 
     def __call__(self, x, deterministic=False):
@@ -156,6 +163,7 @@ class PPO(nn.Module):
 
     Paper: https://arxiv.org/abs/1707.06347
     Introduction to PPO: https://spinningup.openai.com/en/latest/algorithms/ppo.html
+    Implementation: https://github.com/openai/spinningup/blob/master/spinup/algos/pytorch/ppo/ppo.py
 
     :param inputDims: The shape of the input image (W, H, C)
     :param numLogits: The number of logits in the last layer of the network
@@ -190,7 +198,6 @@ class PPO(nn.Module):
         self._initialize_weights()
 
     def _initialize_weights(self):
-        # print("Modules: ", self.modules)
         for m in self.modules():
             if isinstance(m, nn.Conv3d):
                 nn.init.orthogonal_(m.weight)

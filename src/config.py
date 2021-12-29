@@ -1,6 +1,6 @@
-import pystk
-
 from random import choice
+
+import pystk
 
 
 class STK:
