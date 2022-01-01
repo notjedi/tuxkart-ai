@@ -20,9 +20,11 @@ class STKAgent():
     :param raceConfig: `pystk.RaceConfig` object specifying the track and other configs
     """
 
-    def __init__(self, graphicConfig: pystk.GraphicsConfig, raceConfig: pystk.RaceConfig):
+    def __init__(self, graphicConfig: pystk.GraphicsConfig, raceConfig: pystk.RaceConfig, id=1):
 
         pystk.init(graphicConfig)
+        self.id = id
+        self.started = False
         self.graphicConfig = graphicConfig
         self.race = pystk.Race(raceConfig)
         self.state = pystk.WorldState()
@@ -67,18 +69,28 @@ class STKAgent():
     def _get_overall_distance(self) -> int:
         return max(0, int(self.playerKart.overall_distance))
 
-    def _update_action(self, actions: list):
+    def _update_action(self, action: list):
         self.currentAction.acceleration = int('w' in action)
         self.currentAction.brake = 's' in action
-        self.currentAction.steer = int('d' in action) - int('a' in actions)
+        self.currentAction.steer = int('d' in action) - int('a' in action)
         self.currentAction.fire = ' ' in action
         self.currentAction.drift = 'm' in action
         self.currentAction.nitro = 'n' in action
         self.currentAction.rescue = 'r' in action
 
+    def get_env_info(self) -> dict:
+        info = {}
+        info['id'] = self.id
+        info['laps'] = self.race.config.laps
+        info['track'] = self.race.config.track
+        info['reverse'] = self.race.config.reverse
+        info['num_kart'] = self.race.config.num_kart
+        info['step_size'] = self.race.config.step_size
+        info['difficulty'] = self.race.config.difficulty
+        return info
+
     def get_info(self) -> dict:
         info = {}
-
         info["done"] = self.done()
         info["nitro"] = self._check_nitro()
         info["jumping"] = self._get_jumping()
@@ -87,7 +99,6 @@ class STKAgent():
         info["attachment"] = self._get_attachment()
         info["finish_time"] = self._get_finish_time()
         info["overall_distance"] = self._get_overall_distance()
-
         return info
 
     def done(self) -> bool:
@@ -104,7 +115,10 @@ class STKAgent():
         self.playerKart = self.state.players[0].kart
 
     def step(self, action:list):
-        self._update_action(actions)
+        if not self.started:
+            self.reset()
+            self.started = True
+        self._update_action(action)
         self.race.step(self.currentAction)
         self.state.update()
         self.image = self.race.render_data[0].image
@@ -156,8 +170,7 @@ class STKEnv(Env):
 
     def step(self, action):
         assert self.action_space.contains(action), f'Invalid Action {action}'
-        image, reward, done, info = self.env.step(action)
-        return image, reward, done, info
+        return self.env.step(action)
 
     def reset(self):
         self.env.reset()
@@ -180,6 +193,7 @@ class STKReward(Wrapper):
     RESCUE = -5
 
     def __init__(self, env: STKEnv):
+        # TODO: add terminal states
         super(STKReward, self).__init__(env)
         self.reward = 0
         self.prevInfo = None
@@ -233,7 +247,7 @@ class STKReward(Wrapper):
 
 
 def create_env(track):
-    env = STKAgent(STKGraphicConfig(), STKRaceConfig(track))
+    env = STKAgent(STKGraphicConfig().get_config(), STKRaceConfig(track).get_config())
     env = STKEnv(env)
     env = STKReward(env)
     env.reset()
@@ -246,15 +260,13 @@ def test_env():
     # TODO: hook up human agent to the env
     track = choice(STK.TRACKS)
     env = create_env(track)
-    print(env.action_space.sample())
 
-    action = ['m', 'w']
+    action = env.action_space.sample()
     for _ in range(1000):
         image, reward, _, info = env.step(action)
         plt.imshow(image)
         plt.pause(0.1)
-        print(reward, info)
-        print()
+        print(reward, info, end='\n\n')
 
     env.close()
 
