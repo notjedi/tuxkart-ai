@@ -24,14 +24,13 @@ class STKAgent():
 
         pystk.init(graphicConfig)
         self.id = id
-        self.observation_shape = (graphicConfig.screen_width, graphicConfig.screen_height, 3)
+        self.observation_shape = (graphicConfig.screen_height, graphicConfig.screen_width, 3)
         self.started = False
         self.graphicConfig = graphicConfig
         self.race = pystk.Race(raceConfig)
         self.state = pystk.WorldState()
         self.currentAction = pystk.Action()
-        self.image = np.zeros((graphicConfig.screen_width, graphicConfig.screen_height, 3),
-                dtype=np.float16)
+        self.image = np.zeros(self.observation_shape, dtype=np.float16)
 
     def _check_nitro(self) -> bool:
         kartLoc = np.array(self.playerKart.location)

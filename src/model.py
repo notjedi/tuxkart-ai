@@ -91,7 +91,7 @@ class ResBlock(nn.Module):
 class MultiCategorical():
 
     def __init__(self, action_shape):
-        self.action_shape = action_shape
+        self.action_shape = tuple(action_shape)
         self.dist = None
 
     def update_logits(self, logits):
@@ -100,12 +100,18 @@ class MultiCategorical():
         return self
 
     def get_actions(self, logits=None, deterministic=False) -> torch.Tensor:
-
         if logits is not None:
             self.update_logits(logits)
         if deterministic:
             return self.mode()
         return self.sample()
+
+    def log_prob(self, actions) -> torch.Tensor:
+        return torch.stack([dist.log_prob(action) for dist, action in zip(self.dist,
+            torch.unbind(actions, dim=1))], dim=1).sum(dim=1)
+
+    def entropy(self) -> torch.Tensor:
+        return torch.stack([dist.entropy() for dist in self.dist], dim=1).sum(dim=1)
 
     def sample(self) -> torch.Tensor:
         assert self.dist is not None
