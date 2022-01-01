@@ -7,7 +7,7 @@ from gym import Env, Wrapper
 from gym.spaces import Box, MultiDiscrete
 from matplotlib import pyplot as plt
 
-from config import STK, STKGraphicConfig, STKRaceConfig
+from utils import make_env
 
 
 class STKAgent():
@@ -255,20 +255,12 @@ class STKReward(Wrapper):
         return state, reward, done, info
 
 
-def create_env(track):
-    env = STKAgent(STKGraphicConfig().get_config(), STKRaceConfig(track).get_config())
-    env = STKEnv(env)
-    env = STKReward(env)
-    env.reset()
-    return env
-
-
 def test_env():
 
     # TODO: use Reward and Action Wrapper
     # TODO: hook up human agent to the env
-    track = choice(STK.TRACKS)
-    env = create_env(track)
+    env = make_env(0)()
+    env.reset()
 
     action = [1, 0, 0, 0, 1, 0, 0]
     for _ in range(100):

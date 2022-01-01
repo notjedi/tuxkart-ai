@@ -7,28 +7,7 @@ from collections import deque
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
 from config import DEVICE, BATCH_SIZE, BUFFER_SIZE, NUM_FRAMES, NUM_ENVS, GAMMA, LAMBDA
-
-
-def make_env(id: int):
-    """
-    Utility function for multiprocessed env.
-
-    :param env_id: (str) the environment ID
-    :param num_env: (int) the number of environment you wish to have in subprocesses
-    :param seed: (int) the inital seed for RNG
-    :param rank: (int) index of the subprocess
-    :return: (Callable)
-    """
-
-    def _init() -> gym.Env:
-        from env import STKAgent, STKEnv, STKReward
-        from config import STKGraphicConfig, STKRaceConfig
-        env = STKAgent(STKGraphicConfig().get_config(), STKRaceConfig().get_config(), id)
-        env = STKEnv(env)
-        env = STKReward(env)
-        return env
-    return _init
-
+from utils import make_env
 
 class PPOBuffer:
     """
