@@ -24,12 +24,14 @@ class STKAgent():
 
         pystk.init(graphicConfig)
         self.id = id
+        self.observation_shape = (graphicConfig.screen_width, graphicConfig.screen_height, 3)
         self.started = False
         self.graphicConfig = graphicConfig
         self.race = pystk.Race(raceConfig)
         self.state = pystk.WorldState()
         self.currentAction = pystk.Action()
-        self.image = np.zeros((graphicConfig.screen_width, graphicConfig.screen_height, 3))
+        self.image = np.zeros((graphicConfig.screen_width, graphicConfig.screen_height, 3),
+                dtype=np.float16)
 
     def _check_nitro(self) -> bool:
         kartLoc = np.array(self.playerKart.location)
@@ -70,13 +72,16 @@ class STKAgent():
         return max(0, int(self.playerKart.overall_distance))
 
     def _update_action(self, action: list):
-        self.currentAction.acceleration = int('w' in action)
-        self.currentAction.brake = 's' in action
-        self.currentAction.steer = int('d' in action) - int('a' in action)
-        self.currentAction.fire = ' ' in action
-        self.currentAction.drift = 'm' in action
-        self.currentAction.nitro = 'n' in action
-        self.currentAction.rescue = 'r' in action
+        # {acceleration, brake, steer, fire, drift, nitro, rescue}
+        # action_space = [2, 2, 3, 2, 2, 2, 2]
+        self.currentAction.acceleration = action[0]
+        self.currentAction.brake = bool(action[1])
+        self.currentAction.steer = action[2] - 1
+        self.currentAction.fire = bool(action[3])
+        self.currentAction.drift = bool(action[4])
+        self.currentAction.nitro = bool(action[5])
+        self.currentAction.rescue = bool(action[6])
+
 
     def get_env_info(self) -> dict:
         info = {}
@@ -121,7 +126,7 @@ class STKAgent():
         self._update_action(action)
         self.race.step(self.currentAction)
         self.state.update()
-        self.image = self.race.render_data[0].image
+        self.image = np.array(self.race.render_data[0].image)
 
         info = self.get_info()
         done = self.done()
@@ -160,9 +165,8 @@ class STKEnv(Env):
     def __init__(self, env: STKAgent):
         super(STKEnv, self).__init__()
         self.env = env
-        self.observation_shape = (600, 400, 3)
-        self.observation_space = Box(low=np.zeros(self.observation_shape),
-                                    high=np.full(self.observation_shape, 255,
+        self.observation_space = Box(low=np.zeros(self.env.observation_shape),
+                                    high=np.full(self.env.observation_shape, 255,
                                     dtype=np.float16))
 
         # {acceleration, brake, steer, fire, drift, nitro, rescue}
@@ -175,7 +179,9 @@ class STKEnv(Env):
     def reset(self):
         self.env.reset()
 
-    def render(self):
+    def render(self, mode: str = 'human'):
+        if mode == 'rgb_array':
+            return np.transpose(self.env.image, (2, 1, 0))
         return self.env.image
 
     def close(self):
@@ -206,13 +212,16 @@ class STKReward(Wrapper):
 
         # TODO: rewards for benificial attachments
         # action rewards
-        if 'n' in action and info["nitro"]:
+        #  0             1      2      3     4      5      6
+        # {acceleration, brake, steer, fire, drift, nitro, rescue}
+        # action_space = [2, 2, 3, 2, 2, 2, 2]
+        if action[5] and info["nitro"]:
             reward += STKReward.NITRO
-        if 'm' in action:
+        if action[4]:
             reward += STKReward.DRIFT
-        if 'r' in action:
+        if action[6]:
             reward += STKReward.RESCUE
-        if ' ' in action and info["powerup"]:
+        if action[3] and info["powerup"]:
             # TODO: give only if it damages other karts
             reward += STKReward.USE_POWERUP
 
@@ -261,12 +270,13 @@ def test_env():
     track = choice(STK.TRACKS)
     env = create_env(track)
 
-    action = env.action_space.sample()
-    for _ in range(1000):
+    action = [1, 0, 0, 0, 1, 0, 0]
+    for _ in range(100):
+        # action = env.action_space.sample()
         image, reward, _, info = env.step(action)
         plt.imshow(image)
         plt.pause(0.1)
-        print(reward, info, end='\n\n')
+        print(reward)
 
     env.close()
 
