@@ -53,7 +53,7 @@ class ConvBlock(nn.Module):
         :param x: of shape(batch_size, in_channels, H, W)
         :return: Tensor of shape (batch_size, out_channels, H, W)
         """
-        x = F.relu(self.conv(x.float()))
+        x = F.relu(self.conv(x))
         return self.batch_norm(x)
 
 
@@ -102,6 +102,7 @@ class MultiCategorical():
     def get_actions(self, logits=None, deterministic=False) -> torch.Tensor:
         if logits is not None:
             self.update_logits(logits)
+        assert self.dist is not None, "Distribution is not initialized, try passing in logits"
         if deterministic:
             return self.mode()
         return self.sample()
@@ -138,14 +139,14 @@ class Actor(nn.Module):
         self.obs_shape = obs_shape
         self.action_shape = action_shape
         self.reshape = FCView()
-        self.actor1 = ConvBlock(in_channels=256, out_channels=128,
+        self.actor1 = ConvBlock(in_channels=256, out_channels=64,
                 kernel_size=3, padding=1, stride=1)
-        self.actor2 = ConvBlock(in_channels=128, out_channels=32,
+        self.actor2 = ConvBlock(in_channels=64, out_channels=1,
                 kernel_size=3, padding=1, stride=1)
-        self.fc_actor = nn.Linear(np.prod((32,) + self.obs_shape), np.sum(self.action_shape))
+        self.fc_actor = nn.Linear(np.prod((1,) + self.obs_shape), np.sum(self.action_shape))
         self.dist = MultiCategorical(action_shape)
 
-    def forward(self, x, deterministic=False):
+    def forward(self, x):
         x = F.relu(self.actor1(x))
         x = self.actor2(x)
         x = self.fc_actor(self.reshape(x))
@@ -164,8 +165,8 @@ class Critic(nn.Module):
 
         self.obs_shape = obs_shape
         self.reshape = FCView()
-        self.critic= ConvBlock(in_channels=256, out_channels=32, kernel_size=3, padding=1, stride=1)
-        self.fc_critic = nn.Linear(np.prod((32,) + self.obs_shape), 1)
+        self.critic= ConvBlock(in_channels=256, out_channels=1, kernel_size=3, padding=1, stride=1)
+        self.fc_critic = nn.Linear(np.prod((1,) + self.obs_shape), 1)
 
     def forward(self, x):
         x = F.relu(self.critic(x))
@@ -188,19 +189,19 @@ class Net(nn.Module):
     def __init__(self, obs_shape: tuple, action_shape: tuple, num_frames: int):
         super(Net, self).__init__()
 
-        self.num_res_blocks = 1
+        torch.set_default_dtype(torch.float32)
+        self.num_res_blocks = 6
         self.downSampleLayer = (self.num_res_blocks // 2)
         self.obs_shape = obs_shape
 
         self.conv1 = ConvBlock(in_channels=self.obs_shape[-1], out_channels=256,
-                kernel_size=3, padding=1, stride=1)
+                kernel_size=3, padding=1, stride=2)
         for block in range(0, self.downSampleLayer):
             setattr(self, f"res-block-{block+1}", ResBlock(in_channels=256,
                 out_channels=256, kernel_size=3, padding=1, stride=1))
 
         self.conv2 = ConvBlock(in_channels=256, out_channels=256,
-                kernel_size=5, padding=1, stride=1)
-
+                kernel_size=3, padding=0, stride=3)
         for block in range(self.downSampleLayer, self.num_res_blocks):
             setattr(self, f"res-block-{block+1}", ResBlock(in_channels=256,
                 out_channels=256, kernel_size=3, padding=1, stride=1))
@@ -211,7 +212,10 @@ class Net(nn.Module):
         # Refer: https://pytorch.org/docs/1.9.1/generated/torch.nn.Conv3d.html
         # TODO: make this dynamic
         obs_shape = (num_frames, ) + self.obs_shape[:-1]
-        obs_shape = tuple(map(lambda x: (x + 2 - 4 - 1)//1 + 1, obs_shape))
+        # for the 1st conv - (3, 200, 300)
+        obs_shape = tuple(map(lambda x: (x + 2 - 2 - 1)//2 + 1, obs_shape))
+        # for the 2nd conv - (1, 66, 100)
+        obs_shape = tuple(map(lambda x: (x - 2 - 1)//3 + 1, obs_shape))
 
         self.actor = Actor(obs_shape, action_shape)
         self.critic = Critic(obs_shape)
@@ -238,9 +242,9 @@ class Net(nn.Module):
             obs = getattr(self, f"res-block-{block+1}")(obs)
         return obs
 
-    def forward(self, obs: torch.Tensor, deterministic: bool = False):
+    def forward(self, obs: torch.Tensor):
         obs = self._forward_base(obs)
-        policy = self.actor(obs, deterministic)
+        policy = self.actor(obs)
         value = self.critic(obs)
         return policy, value
 
