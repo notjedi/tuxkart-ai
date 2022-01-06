@@ -42,7 +42,7 @@ class STK:
         return config
 
 
-def make_env(id: int):
+def make_env(id: int, track=None):
     """
     Utility function for multiprocessed env.
 
@@ -56,7 +56,7 @@ def make_env(id: int):
     import gym
     def _init() -> gym.Env:
         from env import STKAgent, STKEnv, STKReward
-        env = STKAgent(STK.get_graphic_config(), STK.get_race_config(), id)
+        env = STKAgent(STK.get_graphic_config(), STK.get_race_config(track=track), id)
         env = STKEnv(env)
         env = STKReward(env)
         return env
