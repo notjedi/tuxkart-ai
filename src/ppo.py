@@ -5,6 +5,7 @@ import numpy as np
 
 from torch import optim
 from collections import deque
+from torchinfo import summary
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
 from config import DEVICE, NUM_ENVS, BUFFER_SIZE, NUM_FRAMES, NUM_ENVS, GAMMA, LAMBDA
@@ -23,13 +24,13 @@ class PPOBuffer:
         self.gamma = gamma
         self.lam = lam
 
-        self.obs = np.zeros((buffer_size, batch_size, *reversed(obs_dim)), dtype=np.float16)
-        self.actions = np.zeros((buffer_size, batch_size, len(act_dim)), dtype=np.float16)
-        self.rewards = np.zeros((buffer_size, batch_size), dtype=np.float16)
-        self.returns = np.zeros((buffer_size, batch_size), dtype=np.float16)
-        self.values = np.zeros((buffer_size+1, batch_size), dtype=np.float16)
-        self.log_probs = np.zeros((buffer_size, batch_size), dtype=np.float16)
-        self.advantage = np.zeros((buffer_size, batch_size), dtype=np.float16)
+        self.obs = np.zeros((buffer_size, batch_size, *reversed(obs_dim)), dtype=np.float32)
+        self.actions = np.zeros((buffer_size, batch_size, len(act_dim)), dtype=np.float32)
+        self.rewards = np.zeros((buffer_size, batch_size), dtype=np.float32)
+        self.returns = np.zeros((buffer_size, batch_size), dtype=np.float32)
+        self.values = np.zeros((buffer_size+1, batch_size), dtype=np.float32)
+        self.log_probs = np.zeros((buffer_size, batch_size), dtype=np.float32)
+        self.advantage = np.zeros((buffer_size, batch_size), dtype=np.float32)
 
     def save(self, obs, act, reward, value, log_prob):
         assert self.ptr < self.buffer_size
@@ -51,7 +52,7 @@ class PPOBuffer:
              [y0 + discount * y1 + discount^2 * y2, y1 + discount * y2, y2]]
         """
         # FIXME: consider batch_size
-        return lfilter([1], [1, float(-discount)], x[::-1], axis=0)[::-1]
+        return np.array(lfilter([1], [1, -discount], x[::-1], axis=0)[::-1]).astype(np.float32)
 
 
     def compute_gae(self, next_value):
@@ -65,7 +66,6 @@ class PPOBuffer:
 
         deltas = self.rewards + self.gamma * self.values[1:] - self.values[:-1]
         # TODO: normalize
-        assert deltas.shape == self.advantage.shape
         self.advantage = self.discounted_sum(deltas, self.gamma * self.lam)     # advantage estimate using GAE
         self.returns = self.discounted_sum(self.rewards, self.gamma)            # discounted sum of rewards
         del self.values
@@ -98,12 +98,14 @@ class PPO():
 
         images = self.env.get_images()
         images = deque([np.zeros_like(images) for _ in range(NUM_FRAMES)], maxlen=NUM_FRAMES)
-        to_numpy = lambda x: x.cpu().numpy()
+        to_numpy = lambda x: x.to(device='cpu').numpy()
 
         with torch.no_grad():
             for i in range(self.max_time_step):
+
                 images.append(np.array(self.env.get_images()))
-                obs = torch.from_numpy(np.transpose(np.array(images), (1, 2, 0, 3, 4))).to(DEVICE)
+                obs = torch.from_numpy(np.transpose(np.array(images), (1, 2, 0, 3, 4))).to(DEVICE,
+                        dtype=torch.float32)
 
                 dist, value = self.model(obs)
                 action = dist.sample()
@@ -122,20 +124,23 @@ class PPO():
                     break
 
             images.append(np.array(self.env.get_images()))
-            obs = torch.from_numpy(np.transpose(np.array(images), (1, 2, 0, 3, 4))).to(DEVICE)
+            obs = torch.from_numpy(np.transpose(np.array(images),
+                (1, 2, 0, 3, 4))).to(DEVICE, dtype=torch.float32)
             _, next_value = self.model(obs)
             self.buffer.compute_gae(to_numpy(next_value.squeeze(dim=1)))
             self.env.close()
 
     def train(self):
 
-        to_cuda = lambda x: torch.from_numpy(x).to('cuda')
+        to_cuda = lambda x: torch.from_numpy(x).to(device=torch.device(DEVICE), dtype=torch.float32)
 
         for _ in range(self.EPOCHS):
             for _ in range(self.max_time_step):
 
+                self.opt.zero_grad()
                 obs, act, returns, logp_old, adv = map(to_cuda, self.buffer.get())
-                dist, value_new = self.model(torch.swapaxes(obs, 0, 1))
+                # TODO: check axes
+                dist, value_new = self.model(obs.permute(1, 2, 0, 3, 4)) # transpose axes because it is originally in shape (D, N, C, H, W)
                 logp_new = dist.log_prob(act)
 
                 ratio = (logp_new - logp_old).exp()
@@ -146,9 +151,11 @@ class PPO():
                 critic_loss = (value_new.squeeze() - returns)**2
                 entropy = dist.entropy()
 
+                # if it's going to modify the prob of each action, then why is not the same shape of
+                # the obs? well ig the grad would be +ve or -ve based on the action taken
                 loss = actor_loss + self.CRITIC_DISCOUNT * critic_loss - self.ENTROPY_DISCOUNT * entropy
-                self.opt.zero_grad()
-                loss.backward()
+                # TODO: why mean?
+                loss.mean().backward()
                 self.opt.step()
 
 
@@ -156,9 +163,16 @@ if __name__ == '__main__':
 
     from env import STKEnv
     from model import Net
-    env = SubprocVecEnv([make_env(id) for id in range(NUM_ENVS)], start_method='spawn')
+    from utils import STK
+    torch.manual_seed(1337)
+    torch.cuda.manual_seed(1337)
+    track = STK.TRACKS[0]
+    env = SubprocVecEnv([make_env(id, track) for id in range(NUM_ENVS)], start_method='spawn')
     model = Net(env.observation_space.shape, env.action_space.nvec, NUM_FRAMES)
     model.to(DEVICE)
+    rand_input = torch.rand((1, 3, 5, 400, 600))
+    summary(model, input_data=rand_input, verbose=1)
+    exit(0)
 
     buf_args = { 'buffer_size': BUFFER_SIZE, 'batch_size': NUM_ENVS, 'obs_dim':
             env.observation_space.shape, 'act_dim': env.action_space.nvec, 'num_frames': NUM_FRAMES,
