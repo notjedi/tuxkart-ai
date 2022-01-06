@@ -104,8 +104,7 @@ class PPO():
             for i in range(self.max_time_step):
 
                 images.append(np.array(self.env.get_images()))
-                obs = torch.from_numpy(np.transpose(np.array(images), (1, 2, 0, 3, 4))).to(DEVICE,
-                        dtype=torch.float32)
+                obs = torch.from_numpy(np.transpose(np.array(images), (1, 2, 0, 3, 4))).to(DEVICE)
 
                 dist, value = self.model(obs)
                 action = dist.sample()
@@ -124,8 +123,7 @@ class PPO():
                     break
 
             images.append(np.array(self.env.get_images()))
-            obs = torch.from_numpy(np.transpose(np.array(images),
-                (1, 2, 0, 3, 4))).to(DEVICE, dtype=torch.float32)
+            obs = torch.from_numpy(np.transpose(np.array(images), (1, 2, 0, 3, 4))).to(DEVICE)
             _, next_value = self.model(obs)
             self.buffer.compute_gae(to_numpy(next_value.squeeze(dim=1)))
             self.env.close()
@@ -139,7 +137,6 @@ class PPO():
 
                 self.opt.zero_grad()
                 obs, act, returns, logp_old, adv = map(to_cuda, self.buffer.get())
-                # TODO: check axes
                 dist, value_new = self.model(obs.permute(1, 2, 0, 3, 4)) # transpose axes because it is originally in shape (D, N, C, H, W)
                 logp_new = dist.log_prob(act)
 
@@ -164,15 +161,17 @@ if __name__ == '__main__':
     from env import STKEnv
     from model import Net
     from utils import STK
+
     torch.manual_seed(1337)
     torch.cuda.manual_seed(1337)
     track = STK.TRACKS[0]
     env = SubprocVecEnv([make_env(id, track) for id in range(NUM_ENVS)], start_method='spawn')
     model = Net(env.observation_space.shape, env.action_space.nvec, NUM_FRAMES)
     model.to(DEVICE)
-    rand_input = torch.rand((1, 3, 5, 400, 600))
-    summary(model, input_data=rand_input, verbose=1)
-    exit(0)
+
+    # rand_input = torch.rand((1, 3, 5, 400, 600))
+    # summary(model, input_data=rand_input, verbose=1)
+    # exit(0)
 
     buf_args = { 'buffer_size': BUFFER_SIZE, 'batch_size': NUM_ENVS, 'obs_dim':
             env.observation_space.shape, 'act_dim': env.action_space.nvec, 'num_frames': NUM_FRAMES,

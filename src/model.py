@@ -191,8 +191,8 @@ class Net(nn.Module):
 
         torch.set_default_dtype(torch.float32)
         self.num_res_blocks = 6
-        self.downSampleLayer = (self.num_res_blocks // 2)
         self.obs_shape = obs_shape
+        self.downSampleLayer = (self.num_res_blocks // 2)
 
         self.conv1 = ConvBlock(in_channels=self.obs_shape[-1], out_channels=256,
                 kernel_size=3, padding=1, stride=2)
@@ -207,15 +207,13 @@ class Net(nn.Module):
                 out_channels=256, kernel_size=3, padding=1, stride=1))
 
         # change input dimensions for the Actor and Critic block
-        # as it is downscaled by previous resnet layers
+        # as the original observation is downscaled by previous conv layers
         # W_out = ((W_in + 2P - (F - 1) - 1) / S) + 1 (assuming dilation=1)
         # Refer: https://pytorch.org/docs/1.9.1/generated/torch.nn.Conv3d.html
         # TODO: make this dynamic
         obs_shape = (num_frames, ) + self.obs_shape[:-1]
-        # for the 1st conv - (3, 200, 300)
-        obs_shape = tuple(map(lambda x: (x + 2 - 2 - 1)//2 + 1, obs_shape))
-        # for the 2nd conv - (1, 66, 100)
-        obs_shape = tuple(map(lambda x: (x - 2 - 1)//3 + 1, obs_shape))
+        obs_shape = tuple(map(lambda x: (x + 2 - 2 - 1)//2 + 1, obs_shape)) # 1st conv - (3, 200, 300)
+        obs_shape = tuple(map(lambda x: (x + 0 - 2 - 1)//3 + 1, obs_shape)) # 2nd conv - (1, 66, 100)
 
         self.actor = Actor(obs_shape, action_shape)
         self.critic = Critic(obs_shape)
