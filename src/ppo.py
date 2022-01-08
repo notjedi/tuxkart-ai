@@ -118,9 +118,10 @@ class PPO():
                 if done.any():
                     print('-------------------------------------------------------------')
                     print(f'Trajectory cut off at {i} time steps')
-                    info = self.env.get_env_info()
-                    for key, value in info.items():
-                        print(f'{key}: {value}')
+                    env_infos = np.array(self.env.env_method('get_env_info'))[done]
+                    for env_info in env_infos:
+                        for key, value in env_info.items():
+                            print(f'{key}: {value}')
                     print('-------------------------------------------------------------\n')
                     break
 
