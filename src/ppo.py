@@ -1,15 +1,13 @@
 import gym
 import torch
-from scipy.signal import lfilter
 import numpy as np
 
 from torch import optim
 from collections import deque
 from torchinfo import summary
+from scipy.signal import lfilter
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
-from config import DEVICE, NUM_ENVS, BUFFER_SIZE, NUM_FRAMES, NUM_ENVS, GAMMA, LAMBDA
-from utils import make_env
 
 class PPOBuffer:
     """
@@ -21,16 +19,20 @@ class PPOBuffer:
         self.buffer_size = buffer_size
         self.batch_size = batch_size
         self.num_frames = num_frames
+        self.obs_dim = obs_dim
+        self.act_dim = act_dim
         self.gamma = gamma
         self.lam = lam
+        self.reset()
 
-        self.obs = np.zeros((buffer_size, batch_size, *reversed(obs_dim)), dtype=np.float32)
-        self.actions = np.zeros((buffer_size, batch_size, len(act_dim)), dtype=np.float32)
-        self.rewards = np.zeros((buffer_size, batch_size), dtype=np.float32)
-        self.returns = np.zeros((buffer_size, batch_size), dtype=np.float32)
-        self.values = np.zeros((buffer_size+1, batch_size), dtype=np.float32)
-        self.log_probs = np.zeros((buffer_size, batch_size), dtype=np.float32)
-        self.advantage = np.zeros((buffer_size, batch_size), dtype=np.float32)
+    def reset(self):
+        self.obs = np.zeros((self.buffer_size, self.batch_size, *reversed(self.obs_dim)), dtype=np.float32)
+        self.actions = np.zeros((self.buffer_size, self.batch_size, len(self.act_dim)), dtype=np.float32)
+        self.rewards = np.zeros((self.buffer_size, self.batch_size), dtype=np.float32)
+        self.returns = np.zeros((self.buffer_size, self.batch_size), dtype=np.float32)
+        self.values = np.zeros((self.buffer_size+1, self.batch_size), dtype=np.float32)
+        self.log_probs = np.zeros((self.buffer_size, self.batch_size), dtype=np.float32)
+        self.advantage = np.zeros((self.buffer_size, self.batch_size), dtype=np.float32)
 
     def save(self, obs, act, reward, value, log_prob):
         assert self.ptr < self.buffer_size
@@ -51,9 +53,7 @@ class PPOBuffer:
             [[x0 + discount * x1 + discount^2 * x2, x1 + discount * x2, x2]
              [y0 + discount * y1 + discount^2 * y2, y1 + discount * y2, y2]]
         """
-        # FIXME: consider batch_size
         return np.array(lfilter([1], [1, -discount], x[::-1], axis=0)[::-1]).astype(np.float32)
-
 
     def compute_gae(self, next_value):
         # advantage = discounted sum of rewards - baseline estimate
@@ -63,7 +63,6 @@ class PPOBuffer:
         # advantage = gae = (current reward + (gamma * value of next state) - value of current state) + (discounted sum of gae)
         # advantage = gae = (current reward + essentially a measure of how better the next state is compared to the current state) + (discounted sum of gae)
         self.values[self.ptr] = next_value
-
         deltas = self.rewards + self.gamma * self.values[1:] - self.values[:-1]
         # TODO: normalize
         self.advantage = self.discounted_sum(deltas, self.gamma * self.lam)     # advantage estimate using GAE
@@ -83,28 +82,31 @@ class PPO():
     ENTROPY_DISCOUNT = 0.2
     CLIP_RATIO = 0.2
 
-    def __init__(self, env: SubprocVecEnv, model, max_time_step, **buffer_args):
+    def __init__(self, env: SubprocVecEnv, model, device, **buffer_args):
         """
         :param env: list of STKEnv or vectorized envs?
         """
 
         self.env = env
         self.model = model
+        self.device = device
         self.buffer = PPOBuffer(**buffer_args)
-        self.max_time_step = max_time_step
+        self.num_frames = buffer_args['num_frames']
+        self.max_time_step = buffer_args['buffer_size']
         self.opt = optim.Adam(self.model.parameters(), lr=1e-3)
 
     def rollout(self):
 
+        print('rollout')
         images = self.env.get_images()
-        images = deque([np.zeros_like(images) for _ in range(NUM_FRAMES)], maxlen=NUM_FRAMES)
+        images = deque([np.zeros_like(images) for _ in range(self.num_frames)], maxlen=self.num_frames)
         to_numpy = lambda x: x.to(device='cpu').numpy()
 
         with torch.no_grad():
             for i in range(self.max_time_step):
 
                 images.append(np.array(self.env.get_images()))
-                obs = torch.from_numpy(np.transpose(np.array(images), (1, 2, 0, 3, 4))).to(DEVICE)
+                obs = torch.from_numpy(np.transpose(np.array(images), (1, 2, 0, 3, 4))).to(self.device)
 
                 dist, value = self.model(obs)
                 action = dist.sample()
@@ -123,14 +125,15 @@ class PPO():
                     break
 
             images.append(np.array(self.env.get_images()))
-            obs = torch.from_numpy(np.transpose(np.array(images), (1, 2, 0, 3, 4))).to(DEVICE)
+            obs = torch.from_numpy(np.transpose(np.array(images), (1, 2, 0, 3, 4))).to(self.device)
             _, next_value = self.model(obs)
             self.buffer.compute_gae(to_numpy(next_value.squeeze(dim=1)))
             self.env.close()
 
     def train(self):
 
-        to_cuda = lambda x: torch.from_numpy(x).to(device=torch.device(DEVICE), dtype=torch.float32)
+        print('train')
+        to_cuda = lambda x: torch.from_numpy(x).to(device=torch.device(self.device), dtype=torch.float32)
 
         for _ in range(self.EPOCHS):
             for _ in range(self.max_time_step):
@@ -148,10 +151,7 @@ class PPO():
                 critic_loss = (value_new.squeeze() - returns)**2
                 entropy = dist.entropy()
 
-                # if it's going to modify the prob of each action, then why is not the same shape of
-                # the obs? well ig the grad would be +ve or -ve based on the action taken
                 loss = actor_loss + self.CRITIC_DISCOUNT * critic_loss - self.ENTROPY_DISCOUNT * entropy
-                # TODO: why mean?
                 loss.mean().backward()
                 self.opt.step()
 
@@ -160,7 +160,8 @@ if __name__ == '__main__':
 
     from env import STKEnv
     from model import Net
-    from utils import STK
+    from utils import STK, make_env
+    from config import DEVICE, BUFFER_SIZE, NUM_FRAMES, NUM_ENVS, GAMMA, LAMBDA
 
     torch.manual_seed(1337)
     torch.cuda.manual_seed(1337)
