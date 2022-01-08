@@ -120,7 +120,7 @@ class MultiCategorical():
 
     def mode(self) -> torch.Tensor:
         assert self.dist is not None
-        return torch.stack([torch.argmax(dist.probs) for dist in self.dist], dim=1)
+        return torch.stack([torch.argmax(dist.probs, dim=1) for dist in self.dist], dim=1)
 
 
 class Actor(nn.Module):
@@ -139,7 +139,7 @@ class Actor(nn.Module):
         self.obs_shape = obs_shape
         self.action_shape = action_shape
         self.reshape = FCView()
-        self.actor1 = ConvBlock(in_channels=256, out_channels=64,
+        self.actor1 = ConvBlock(in_channels=128, out_channels=64,
                 kernel_size=3, padding=1, stride=1)
         self.actor2 = ConvBlock(in_channels=64, out_channels=1,
                 kernel_size=3, padding=1, stride=1)
@@ -165,7 +165,7 @@ class Critic(nn.Module):
 
         self.obs_shape = obs_shape
         self.reshape = FCView()
-        self.critic= ConvBlock(in_channels=256, out_channels=1, kernel_size=3, padding=1, stride=1)
+        self.critic= ConvBlock(in_channels=128, out_channels=1, kernel_size=3, padding=1, stride=1)
         self.fc_critic = nn.Linear(np.prod((1,) + self.obs_shape), 1)
 
     def forward(self, x):
@@ -200,11 +200,11 @@ class Net(nn.Module):
             setattr(self, f"res-block-{block+1}", ResBlock(in_channels=256,
                 out_channels=256, kernel_size=3, padding=1, stride=1))
 
-        self.conv2 = ConvBlock(in_channels=256, out_channels=256,
+        self.conv2 = ConvBlock(in_channels=256, out_channels=128,
                 kernel_size=3, padding=0, stride=3)
         for block in range(self.downSampleLayer, self.num_res_blocks):
-            setattr(self, f"res-block-{block+1}", ResBlock(in_channels=256,
-                out_channels=256, kernel_size=3, padding=1, stride=1))
+            setattr(self, f"res-block-{block+1}", ResBlock(in_channels=128,
+                out_channels=128, kernel_size=3, padding=1, stride=1))
 
         # change input dimensions for the Actor and Critic block
         # as the original observation is downscaled by previous conv layers
