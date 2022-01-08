@@ -255,7 +255,7 @@ if __name__ == '__main__':
     ACT_DIM = (2, 2, 3, 2, 2, 2, 2)
 
     randInput = torch.randint(0, 10, (BATCH_SIZE, OBS_DIM[-1], NUM_FRAMES, *OBS_DIM[:-1]),
-            device=DEVICE, dtype=torch.float16)
+            device=DEVICE, dtype=torch.float32)
     model = Net(OBS_DIM, ACT_DIM, NUM_FRAMES)
     model.to(DEVICE)
 

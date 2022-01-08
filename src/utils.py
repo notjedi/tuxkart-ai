@@ -55,7 +55,7 @@ def make_env(id: int, track=None):
 
     import gym
     def _init() -> gym.Env:
-        from env import STKAgent, STKEnv, STKReward
+        from src.env import STKAgent, STKEnv, STKReward
         env = STKAgent(STK.get_graphic_config(), STK.get_race_config(track=track), id)
         env = STKEnv(env)
         env = STKReward(env)

@@ -7,8 +7,6 @@ from gym import Env, Wrapper
 from gym.spaces import Box, MultiDiscrete
 from matplotlib import pyplot as plt
 
-from utils import make_env
-
 
 class STKAgent():
     """
@@ -30,7 +28,7 @@ class STKAgent():
         self.race = pystk.Race(raceConfig)
         self.state = pystk.WorldState()
         self.currentAction = pystk.Action()
-        self.image = np.zeros(self.observation_shape, dtype=np.float16)
+        self.image = np.zeros(self.observation_shape, dtype=np.float32)
 
     def _check_nitro(self) -> bool:
         kartLoc = np.array(self.playerKart.location)
@@ -125,7 +123,7 @@ class STKAgent():
         self._update_action(action)
         self.race.step(self.currentAction)
         self.state.update()
-        self.image = np.array(self.race.render_data[0].image)
+        self.image = np.array(self.race.render_data[0].image, dtype=np.float32)
 
         info = self.get_info()
         done = self.done()
@@ -166,7 +164,7 @@ class STKEnv(Env):
         self.env = env
         self.observation_space = Box(low=np.zeros(self.env.observation_shape),
                                     high=np.full(self.env.observation_shape, 255,
-                                    dtype=np.float16))
+                                    dtype=np.float32))
 
         # {acceleration, brake, steer, fire, drift, nitro, rescue}
         self.action_space = MultiDiscrete([2, 2, 3, 2, 2, 2, 2])
@@ -182,6 +180,9 @@ class STKEnv(Env):
         if mode == 'rgb_array':
             return np.transpose(self.env.image, (2, 1, 0))
         return self.env.image
+
+    def get_env_info(self):
+        return self.env.get_env_info()
 
     def close(self):
         self.env.close()
@@ -258,6 +259,7 @@ def test_env():
 
     # TODO: use Reward and Action Wrapper
     # TODO: hook up human agent to the env
+    from utils import make_env
     env = make_env(0)()
     env.reset()
 
