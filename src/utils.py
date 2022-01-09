@@ -10,6 +10,10 @@ class STK:
             'overworld', 'ravenbridge_mansion', 'sandtrack', 'scotland', 'snowmountain',
             'snowtuxpeak', 'stk_enterprise', 'volcano_island', 'xr591', 'zengarden']
 
+    KARTS = ['adiumy', 'amanda', 'beastie', 'emule', 'gavroche', 'gnu', 'hexley', 'kiki', 'konqi',
+            'nolok', 'pidgin', 'puffy', 'sara_the_racer', 'sara_the_wizard', 'suzanne', 'tux',
+            'wilber', 'xue']
+
     GRAPHICS = { "hd": pystk.GraphicsConfig.hd,
             "sd": pystk.GraphicsConfig.sd,
             "ld": pystk.GraphicsConfig.ld,
@@ -26,9 +30,12 @@ class STK:
         return config
 
     @staticmethod
-    def get_race_config(track=None, numKarts=5, laps=1, reverse=False, difficulty=1, stepSize=0.07):
+    def get_race_config(track=None, kart=None, numKarts=5, laps=1, reverse=False, difficulty=1,
+            stepSize=0.07):
         if track is None:
             track = choice(STK.TRACKS)
+        if kart is None:
+            kart = choice(STK.KARTS)
 
         config = pystk.RaceConfig()
         config.difficulty = difficulty
@@ -38,25 +45,23 @@ class STK:
         config.track = track
         config.laps = laps
         config.players[0].team = 0
+        config.players[0].kart = kart
         config.players[0].controller = pystk.PlayerConfig.Controller.PLAYER_CONTROL
         return config
 
 
-def make_env(id: int, track=None):
+def make_env(id: int, quality='hd', race_config_args={}):
     """
-    Utility function for multiprocessed env.
+    Utility function to create an env.
 
     :param env_id: (str) the environment ID
-    :param num_env: (int) the number of environment you wish to have in subprocesses
-    :param seed: (int) the inital seed for RNG
-    :param rank: (int) index of the subprocess
     :return: (Callable)
     """
 
     import gym
     def _init() -> gym.Env:
         from src.env import STKAgent, STKEnv, STKReward
-        env = STKAgent(STK.get_graphic_config(), STK.get_race_config(track=track), id)
+        env = STKAgent(STK.get_graphic_config(quality), STK.get_race_config(**race_config_args), id)
         env = STKEnv(env)
         env = STKReward(env)
         return env
