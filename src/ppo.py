@@ -83,9 +83,9 @@ class PPO():
     EPOCHS = 3
     GAMMA = 0.9
     LAMBDA = 0.95
-    CLIP_RATIO = 0.2
+    EPSILON = 0.2
+    ENTROPY_BETA = 0.2
     CRITIC_DISCOUNT = 0.5
-    ENTROPY_DISCOUNT = 0.2
 
     def __init__(self, env: SubprocVecEnv, model, optimizer, writer, device, **buffer_args):
         """
@@ -151,11 +151,11 @@ class PPO():
 
                 ratio = (logp_new - logp_old).exp()
                 surr1 = ratio * adv
-                surr2 = torch.clamp(ratio, 1 + self.CLIP_RATIO, 1 - self.CLIP_RATIO) * adv
+                surr2 = torch.clamp(ratio, 1 + self.EPSILON, 1 - self.EPSILON) * adv
 
                 actor_loss = -torch.min(surr1, surr2).mean()
                 critic_loss = self.CRITIC_DISCOUNT * ((value_new.squeeze() - returns)**2).mean()
-                entropy_loss = self.ENTROPY_DISCOUNT * dist.entropy().mean()
+                entropy_loss = self.ENTROPY_BETA * dist.entropy().mean()
 
                 loss = actor_loss + critic_loss - entropy_loss
                 loss.backward()
