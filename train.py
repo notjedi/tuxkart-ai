@@ -27,14 +27,16 @@ def main(args):
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
 
-    # TODO: load model from args
-    race_config_args = { 'track': args.track, 'kart': args.kart }
-    prev_reward, curr_reward = 0, 0
     env = make_env(id)()
     model = Net(env.observation_space.shape, env.action_space.nvec, args.num_frames)
     model.to(args.device)
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
     env.close()
+    if args.model_path is not None:
+        model.load_state_dict(torch.load(args.model_path))
+
+    race_config_args = { 'track': args.track, 'kart': args.kart }
+    prev_reward, curr_reward = 0, 0
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
     writer = SummaryWriter(log_dir=args.log_dir)
 
     for i in trange(args.num_global_steps):
@@ -66,6 +68,7 @@ if __name__ == '__main__':
     parser.add_argument('--graphic', type=str, choices=['hd', 'ld', 'sd'], default='hd')
 
     # model args
+    parser.add_argument('--model_path', type=Path, default=None, help='Load model from path.')
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--seed', type=int, default=1337)
     parser.add_argument('--num_frames', type=int, default=5)
@@ -78,7 +81,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_global_steps', type=int, default=5000)
     parser.add_argument('--device', type=str, choices=['cpu', 'cuda'], default='cuda')
     parser.add_argument('--log_dir', type=Path, default=join(Path(__file__).absolute().parent,
-    'tensorboard'), help='Path to the directory in which the trained models are saved.')
+    'tensorboard'), help='Path to the directory in which the tensorboard logs are saved.')
     parser.add_argument('--save_dir', type=Path, default=join(Path(__file__).absolute().parent,
         '/models'), help='Path to the directory in which the trained models are saved.')
     args = parser.parse_args()
