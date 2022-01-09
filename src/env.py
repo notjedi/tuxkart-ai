@@ -258,7 +258,6 @@ class STKReward(Wrapper):
 def test_env():
 
     # TODO: use Reward and Action Wrapper
-    # TODO: hook up human agent to the env
     from utils import make_env
     env = make_env(0)()
     env.reset()
