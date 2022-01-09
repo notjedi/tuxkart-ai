@@ -65,9 +65,10 @@ class PPOBuffer:
         # advantage = gae = (current reward + essentially a measure of how better the next state is compared to the current state) + (discounted sum of gae)
         self.values[self.ptr] = next_value
         deltas = self.rewards + self.gamma * self.values[1:] - self.values[:-1]
-        # TODO: normalize
         self.advantage = self.discounted_sum(deltas, self.gamma * self.lam)     # advantage estimate using GAE
         self.returns = self.discounted_sum(self.rewards, self.gamma)            # discounted sum of rewards
+        self.advantage = (self.advantage - np.mean(self.advantage, axis=1)) / np.std(self.advantage,
+                axis=1)
         # self.returns = self.advantage - self.values[:-1]                      # some use this, some use the above
         del self.values
 
@@ -107,7 +108,6 @@ class PPO():
         images = deque([np.zeros_like(images) for _ in range(self.num_frames)], maxlen=self.num_frames)
         to_numpy = lambda x: x.to(device='cpu').numpy()
 
-        # TODO: log advantages and other metrics during rollout
         with torch.no_grad():
             for i in range(self.buffer_size):
 
