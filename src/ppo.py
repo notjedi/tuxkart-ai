@@ -2,10 +2,11 @@ import gym
 import torch
 import numpy as np
 
-from torch import optim
+from tqdm import tqdm, trange
 from collections import deque
 from torchinfo import summary
 from scipy.signal import lfilter
+from torch.utils.tensorboard import SummaryWriter
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
 
@@ -67,6 +68,7 @@ class PPOBuffer:
         # TODO: normalize
         self.advantage = self.discounted_sum(deltas, self.gamma * self.lam)     # advantage estimate using GAE
         self.returns = self.discounted_sum(self.rewards, self.gamma)            # discounted sum of rewards
+        # self.returns = self.advantage - self.values[:-1]                      # some use this, some use the above
         del self.values
 
     def get(self):
@@ -78,32 +80,36 @@ class PPOBuffer:
 class PPO():
 
     EPOCHS = 3
+    GAMMA = 0.9
+    LAMBDA = 0.95
+    CLIP_RATIO = 0.2
     CRITIC_DISCOUNT = 0.5
     ENTROPY_DISCOUNT = 0.2
-    CLIP_RATIO = 0.2
 
-    def __init__(self, env: SubprocVecEnv, model, device, **buffer_args):
+    def __init__(self, env: SubprocVecEnv, model, optimizer, writer, device, **buffer_args):
         """
         :param env: list of STKEnv or vectorized envs?
         """
 
         self.env = env
         self.model = model
+        self.opt = optimizer
         self.device = device
+        self.writer = writer
+        buffer_args['gamma'], buffer_args['lam'] = self.GAMMA, self.LAMBDA
         self.buffer = PPOBuffer(**buffer_args)
         self.num_frames = buffer_args['num_frames']
-        self.max_time_step = buffer_args['buffer_size']
-        self.opt = optim.Adam(self.model.parameters(), lr=1e-3)
+        self.buffer_size = buffer_args['buffer_size']
 
     def rollout(self):
 
-        print('rollout')
         images = self.env.get_images()
         images = deque([np.zeros_like(images) for _ in range(self.num_frames)], maxlen=self.num_frames)
         to_numpy = lambda x: x.to(device='cpu').numpy()
 
+        # TODO: log advantages and other metrics during rollout
         with torch.no_grad():
-            for i in range(self.max_time_step):
+            for i in range(self.buffer_size):
 
                 images.append(np.array(self.env.get_images()))
                 obs = torch.from_numpy(np.transpose(np.array(images), (1, 2, 0, 3, 4))).to(self.device)
@@ -133,11 +139,10 @@ class PPO():
 
     def train(self):
 
-        print('train')
         to_cuda = lambda x: torch.from_numpy(x).to(device=torch.device(self.device), dtype=torch.float32)
 
-        for _ in range(self.EPOCHS):
-            for _ in range(self.max_time_step):
+        for epoch in trange(self.EPOCHS):
+            for timestep in (t:=tqdm((range(self.buffer_size)))):
 
                 self.opt.zero_grad()
                 obs, act, returns, logp_old, adv = map(to_cuda, self.buffer.get())
@@ -148,13 +153,30 @@ class PPO():
                 surr1 = ratio * adv
                 surr2 = torch.clamp(ratio, 1 + self.CLIP_RATIO, 1 - self.CLIP_RATIO) * adv
 
-                actor_loss = torch.min(surr1, surr2)
-                critic_loss = (value_new.squeeze() - returns)**2
-                entropy = dist.entropy()
+                actor_loss = -torch.min(surr1, surr2).mean()
+                critic_loss = self.CRITIC_DISCOUNT * ((value_new.squeeze() - returns)**2).mean()
+                entropy_loss = self.ENTROPY_DISCOUNT * dist.entropy().mean()
 
-                loss = actor_loss + self.CRITIC_DISCOUNT * critic_loss - self.ENTROPY_DISCOUNT * entropy
-                loss.mean().backward()
+                loss = actor_loss + critic_loss - entropy_loss
+                loss.backward()
                 self.opt.step()
+
+                step = epoch * timestep
+                t.set_description(f"loss: {loss}")
+                self.writer.add_scalar("train/ratio", ratio.item(), step)
+                self.writer.add_scalar("train/advantage", adv.item(), step)
+                self.writer.add_scalar("train/returns", returns.item(), step)
+                self.writer.add_scalar("train/log_old", logp_old.item(), step)
+                self.writer.add_scalar("train/log_new", logp_new.item(), step)
+                self.log(step, actor_loss, critic_loss, entropy_loss, loss)
+
+    def log(self, step, actor_loss, critic_loss, entropy_loss, loss):
+
+        self.writer.add_scalar("train/entropy_loss", entropy_loss.item(), step)
+        self.writer.add_scalar("train/policy_loss", actor_loss.item(), step)
+        self.writer.add_scalar("train/value_loss", critic_loss.item(), step)
+        self.writer.add_scalar("train/loss", loss.item(), step)
+        self.writer.flush()
 
 
 if __name__ == '__main__':
@@ -162,12 +184,13 @@ if __name__ == '__main__':
     from env import STKEnv
     from model import Net
     from utils import STK, make_env
-    from config import DEVICE, BUFFER_SIZE, NUM_FRAMES, NUM_ENVS, GAMMA, LAMBDA
+    DEVICE, BUFFER_SIZE, NUM_FRAMES, NUM_ENVS = 'cuda', 16, 5, 2
 
     torch.manual_seed(1337)
     torch.cuda.manual_seed(1337)
-    track = STK.TRACKS[0]
-    env = SubprocVecEnv([make_env(id, track) for id in range(NUM_ENVS)], start_method='spawn')
+    race_config_args = { 'track': STK.TRACKS[0] }
+    env = SubprocVecEnv([make_env(id, race_config_args=race_config_args) for id in range(NUM_ENVS)],
+            start_method='spawn')
     model = Net(env.observation_space.shape, env.action_space.nvec, NUM_FRAMES)
     model.to(DEVICE)
 
@@ -177,7 +200,7 @@ if __name__ == '__main__':
 
     buf_args = { 'buffer_size': BUFFER_SIZE, 'batch_size': NUM_ENVS, 'obs_dim':
             env.observation_space.shape, 'act_dim': env.action_space.nvec, 'num_frames': NUM_FRAMES,
-            'gamma': GAMMA, 'lam': LAMBDA }
+            'gamma': PPO.GAMMA, 'lam': PPO.LAMBDA }
     ppo = PPO(env, model, buf_args['buffer_size'], **buf_args)
     ppo.rollout()
     ppo.train()
