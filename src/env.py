@@ -1,11 +1,10 @@
-from random import choice
-from time import perf_counter, sleep, time
-
-import numpy as np
 import pystk
+import numpy as np
+
+from random import choice
 from gym import Env, Wrapper
+from sympy import Point3D, Line3D
 from gym.spaces import Box, MultiDiscrete
-from matplotlib import pyplot as plt
 
 
 class STKAgent():
@@ -102,7 +101,7 @@ class STKAgent():
 
     def _get_velocity(self):
         # returns the magnitude of velocity
-        return np.sqrt(np.sum(np.array(self.playerKart.velocity ** 2)))
+        return np.sqrt(np.sum(np.array(self.playerKart.velocity) ** 2))
 
     def _update_action(self, action: list):
         # {acceleration, brake, steer, fire, drift, nitro, rescue}
@@ -283,7 +282,7 @@ class STKReward(Wrapper):
             reward -= STKReward.POSITION
 
         # rewards for velocity
-        if info["velocity"] > (prevInfo["velocity"] + 1):
+        if info["velocity"] > (self.prevInfo["velocity"] + 1):
             reward += STKReward.VELOCITY
 
         if not info["is_inside_track"]:
@@ -294,7 +293,7 @@ class STKReward(Wrapper):
         reward += (info["overall_distance"] - self.prevInfo["overall_distance"])
 
         # rewards for collecting powerups
-        if info["powerup"] is not None and prevInfo["powerup"] is None:
+        if info["powerup"] is not None and self.prevInfo["powerup"] is None:
             reward += STKReward.COLLECT_POWERUP
 
         # misc rewards
