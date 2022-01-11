@@ -1,10 +1,8 @@
-import gym
 import torch
 import numpy as np
 
 from tqdm import tqdm, trange
 from collections import deque
-from torchinfo import summary
 from scipy.signal import lfilter
 from torch.utils.tensorboard import SummaryWriter
 from stable_baselines3.common.vec_env import SubprocVecEnv
@@ -177,30 +175,3 @@ class PPO():
         self.writer.add_scalar("train/value_loss", critic_loss.item(), step)
         self.writer.add_scalar("train/loss", loss.item(), step)
         self.writer.flush()
-
-
-if __name__ == '__main__':
-
-    from env import STKEnv
-    from model import Net
-    from utils import STK, make_env
-    DEVICE, BUFFER_SIZE, NUM_FRAMES, NUM_ENVS = 'cuda', 16, 5, 2
-
-    torch.manual_seed(1337)
-    torch.cuda.manual_seed(1337)
-    race_config_args = { 'track': STK.TRACKS[0] }
-    env = SubprocVecEnv([make_env(id, race_config_args=race_config_args) for id in range(NUM_ENVS)],
-            start_method='spawn')
-    model = Net(env.observation_space.shape, env.action_space.nvec, NUM_FRAMES)
-    model.to(DEVICE)
-
-    # rand_input = torch.rand((1, 3, 5, 400, 600))
-    # summary(model, input_data=rand_input, verbose=1)
-    # exit(0)
-
-    buf_args = { 'buffer_size': BUFFER_SIZE, 'batch_size': NUM_ENVS, 'obs_dim':
-            env.observation_space.shape, 'act_dim': env.action_space.nvec, 'num_frames': NUM_FRAMES,
-            'gamma': PPO.GAMMA, 'lam': PPO.LAMBDA }
-    ppo = PPO(env, model, buf_args['buffer_size'], **buf_args)
-    ppo.rollout()
-    ppo.train()

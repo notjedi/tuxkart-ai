@@ -244,6 +244,7 @@ class STKReward(Wrapper):
 
     def __init__(self, env: STKEnv):
         # TODO: add terminal states
+        # TODO: use RewardWrapper instead?
         # TODO: sanity check env while using it in model
         # TODO: intelligently handle rewards for attachments
         # TODO: rewards for using powerup - only if it hits other karts
@@ -308,25 +309,3 @@ class STKReward(Wrapper):
         early_end, reward += self._get_reward(action, info)
         # done = early_end or done
         return state, reward, done, info
-
-
-def test_env():
-
-    # TODO: use Reward and Action Wrapper
-    from utils import make_env
-    env = make_env(0)()
-    env.reset()
-
-    action = [1, 0, 0, 0, 1, 0, 0]
-    for _ in range(100):
-        # action = env.action_space.sample()
-        image, reward, _, info = env.step(action)
-        plt.imshow(image)
-        plt.pause(0.1)
-        print(reward)
-
-    env.close()
-
-
-if __name__ == "__main__":
-    test_env()

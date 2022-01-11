@@ -1,8 +1,8 @@
-import numpy as np
 import torch
+import numpy as np
 
 from torch import nn
-from torch.distributions import Bernoulli, Categorical
+from torch.distributions import Categorical
 from torch.nn import functional as F
 
 
@@ -248,16 +248,17 @@ class Net(nn.Module):
 
 if __name__ == '__main__':
 
-    DEVICE = 'cuda'
-    BATCH_SIZE = 8
-    NUM_FRAMES = 5
-    OBS_DIM = (60, 40, 3)
-    ACT_DIM = (2, 2, 3, 2, 2, 2, 2)
+    from torchinfo import summary
+    from model import Net
+    from utils import STK, make_env
 
-    randInput = torch.randint(0, 10, (BATCH_SIZE, OBS_DIM[-1], NUM_FRAMES, *OBS_DIM[:-1]),
-            device=DEVICE, dtype=torch.float32)
-    model = Net(OBS_DIM, ACT_DIM, NUM_FRAMES)
+    DEVICE, NUM_FRAMES, NUM_ENVS = 'cuda', 16, 5, 2
+    env = SubprocVecEnv([make_env(id) for id in range(NUM_ENVS)], start_method='spawn')
+    obs_shape, act_shape = env.observation_space.shape, env.action_space.nvec
+    env.close()
+
+    model = Net(obs_shape, act_shape, NUM_FRAMES)
     model.to(DEVICE)
 
-    policy, value = model(randInput)
-    print(policy.sample(), value, sep='\n')
+    rand_input = torch.rand((1, 3, 5, 400, 600))
+    summary(model, input_data=rand_input, verbose=1)
