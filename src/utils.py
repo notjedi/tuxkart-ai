@@ -30,8 +30,7 @@ class STK:
         return config
 
     @staticmethod
-    def get_race_config(track=None, kart=None, numKarts=5, laps=1, reverse=False, difficulty=1,
-            stepSize=0.07):
+    def get_race_config(track=None, kart=None, numKarts=5, laps=1, reverse=False, difficulty=1):
         if track is None:
             track = choice(STK.TRACKS)
         if kart is None:
@@ -39,7 +38,6 @@ class STK:
 
         config = pystk.RaceConfig()
         config.difficulty = difficulty
-        config.step_size = stepSize
         config.num_kart = numKarts
         config.reverse = reverse
         config.track = track
