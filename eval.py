@@ -58,16 +58,22 @@ def main(args):
             'laps': args.laps, 'reverse': args.reverse, 'difficulty': args.difficulty }
     env = SubprocVecEnv([make_env(id, args.graphic, race_config_args) for id in range(1)],
             start_method='spawn')
+
     model = Net(env.observation_space.shape, env.action_space.nvec, args.num_frames)
     model.to(args.device)
+    if args.model_path is not None:
+        model.load_state_dict(torch.load(args.model_path))
+
     reward = eval(env, model, writer, args, log=True)
     print(f'Total rewards: {reward}')
     env.close()
 
 
 if __name__ == '__main__':
+
     from os.path import join
     from src.utils import STK
+
     parser = argparse.ArgumentParser("Implementation of the PPO algorithm for the SuperTuxKart game")
     parser.add_argument('--laps', type=int, default=1)
     parser.add_argument('--num_karts', type=int, default=5)
@@ -80,6 +86,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_frames', type=int, default=5)
     parser.add_argument('--eval_steps', type=int, default=2500)
     parser.add_argument('--device', type=str, choices=['cpu', 'cuda'], default='cuda')
+    parser.add_argument('--model_path', type=Path, default=None, help='Load model from path.')
     parser.add_argument('--log_dir', type=Path, default=join(Path(__file__).absolute().parent,
     'tensorboard'), help='Path to the directory in which the trained models are saved.')
     args = parser.parse_args()
