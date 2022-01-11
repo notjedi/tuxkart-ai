@@ -13,7 +13,6 @@ def test_env():
         image, reward, _, info = env.step(action)
         plt.imshow(image.astype(np.uint8))
         plt.pause(0.1)
-        print(reward)
 
     env.close()
     print("src/env.py test successful")
@@ -69,6 +68,6 @@ def test_ppo():
 
 if __name__ == "__main__":
     # TODO: biggest BUG in env code - the karts don's seem to move(is it the camera?)
-    # test_env()
-    # test_model()
+    test_env()
+    test_model()
     test_ppo()

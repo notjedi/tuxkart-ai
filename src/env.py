@@ -63,7 +63,7 @@ class STKAgent():
 
     def _get_powerup(self):
         powerup = self.playerKart.powerup
-        if powerup == pystk.Powerup.Type.NOTHING:
+        if powerup.type == pystk.Powerup.Type.NOTHING:
             return None
         return powerup
 
@@ -73,7 +73,7 @@ class STKAgent():
 
     def _get_attachment(self):
         attachment = self.playerKart.attachment
-        if attachment == pystk.Attachment.Type.NOTHING:
+        if attachment.type == pystk.Attachment.Type.NOTHING:
             return None
         return attachment
 
