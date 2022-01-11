@@ -63,11 +63,11 @@ def test_ppo():
     ppo = PPO(env, model, optimizer, writer, DEVICE, **buf_args)
     ppo.rollout()
     ppo.train()
+    env.close()
     print("src/ppo.py test successful")
 
 
 if __name__ == "__main__":
-    # TODO: biggest BUG in env code - the karts don's seem to move(is it the camera?)
     test_env()
     test_model()
     test_ppo()

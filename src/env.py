@@ -151,6 +151,7 @@ class STKAgent():
         self.race.step()
         self.state.update()
         self.track.update()
+        self.started = True
         self.path_width = np.array(self.track.path_width)
         self.path_distance = np.array(self.track.path_distance)
         self.path_nodes = np.array(self._compute_lines(self.track.path_nodes))
@@ -289,7 +290,7 @@ class STKReward(Wrapper):
             reward += STKReward.OUT_OF_TRACK
             early_end = True
 
-        # don't go backwards
+        # don't go backwards - note that this can also implicitly add -ve rewards
         reward += (info["overall_distance"] - self.prevInfo["overall_distance"])
 
         # rewards for collecting powerups
@@ -297,7 +298,7 @@ class STKReward(Wrapper):
             reward += STKReward.COLLECT_POWERUP
 
         # misc rewards
-        if info["jumping"] and not prevInfo["jumping"]:
+        if info["jumping"] and not self.prevInfo["jumping"]:
             reward += STKReward.JUMP
 
         self.prevInfo = info
