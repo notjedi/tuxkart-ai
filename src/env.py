@@ -22,10 +22,12 @@ class STKAgent():
 
         pystk.init(graphicConfig)
         self.id = id
-        self.observation_shape = (graphicConfig.screen_height, graphicConfig.screen_width, 3)
+        self.node_idx = 0
         self.started = False
+        self.observation_shape = (graphicConfig.screen_height, graphicConfig.screen_width, 3)
         self.graphicConfig = graphicConfig
         self.race = pystk.Race(raceConfig)
+        self.track = pystk.Track()
         self.state = pystk.WorldState()
         self.currentAction = pystk.Action()
         self.image = np.zeros(self.observation_shape, dtype=np.float32)
@@ -42,6 +44,20 @@ class STKAgent():
                 if dist <= 1:
                     return True
         return False
+
+    def _compute_lines(self, nodes):
+        return [Line3D(*node) for node in nodes]
+
+    def _update_node_idx(self):
+        dist_down_track = self.playerKart.distance_down_track
+        path_dist = self.path_distance[self.node_idx]
+        if not (path_dist[0] <= dist_down_track <= path_dist[1]):
+            while not (path_dist[0] <= dist_down_track <= path_dist[1]):
+                if dist_down_track < path_dist[0]:
+                    self.node_idx -= 1
+                elif dist_down_track > path_dist[1]:
+                    self.node_idx += 1
+                path_dist = self.path_distance[self.node_idx]
 
     def _get_jumping(self) -> bool:
         return self.playerKart.jumping
@@ -68,6 +84,26 @@ class STKAgent():
     def _get_overall_distance(self) -> int:
         return max(0, int(self.playerKart.overall_distance))
 
+    def _get_kart_dist_from_center(self):
+        # compute the dist b/w the kart and the center of the track
+        # should have called self._update_node_idx() before calling this to avoid errors
+        location = self.playerKart.location
+        path_node = self.path_nodes[self.node_idx]
+        return path_node.distance(Point3D(location)).evalf()
+
+    def _get_is_inside_track(self):
+        # should i call this inside step?
+        # divide path_width by 2 because it's the width of the current path node
+        # and the dist of kart is from the center line
+        self._update_node_idx()
+        curr_path_width = self.path_width[self.node_idx][0]
+        kart_dist = self._get_kart_dist_from_center()
+        return kart_dist <= curr_path_width/2
+
+    def _get_velocity(self):
+        # returns the magnitude of velocity
+        return np.sqrt(np.sum(np.array(self.playerKart.velocity ** 2)))
+
     def _update_action(self, action: list):
         # {acceleration, brake, steer, fire, drift, nitro, rescue}
         # action_space = [2, 2, 3, 2, 2, 2, 2]
@@ -78,7 +114,6 @@ class STKAgent():
         self.currentAction.drift = bool(action[4])
         self.currentAction.nitro = bool(action[5])
         self.currentAction.rescue = bool(action[6])
-
 
     def get_env_info(self) -> dict:
         info = {}
@@ -97,9 +132,11 @@ class STKAgent():
         info["nitro"] = self._check_nitro()
         info["jumping"] = self._get_jumping()
         info["powerup"] = self._get_powerup()
+        info["velocity"] = self._get_velocity()
         info["position"] = self._get_position()
         info["attachment"] = self._get_attachment()
         info["finish_time"] = self._get_finish_time()
+        info["is_inside_track"] = self._get_is_inside_track()
         info["overall_distance"] = self._get_overall_distance()
         return info
 
@@ -114,6 +151,10 @@ class STKAgent():
         self.race.start()
         self.race.step()
         self.state.update()
+        self.track.update()
+        self.path_width = np.array(track.path_width)
+        self.path_distance = np.array(self.track.path_distance)
+        self.path_nodes = np.array(self._compute_lines(self.track.path_nodes))
         self.playerKart = self.state.players[0].kart
 
     def step(self, action:list):
@@ -123,6 +164,7 @@ class STKAgent():
         self._update_action(action)
         self.race.step(self.currentAction)
         self.state.update()
+        self.track.update()
         self.image = np.array(self.race.render_data[0].image, dtype=np.float32)
 
         info = self.get_info()
