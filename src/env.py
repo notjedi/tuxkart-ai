@@ -231,28 +231,33 @@ class STKEnv(Env):
 
 class STKReward(Wrapper):
 
-    FINISH = 10
-    POSITION = 5
+    FINISH          = 30
+    POSITION        = 5
+    DRIFT           = 3
+    NITRO           = 3
     COLLECT_POWERUP = 3
-    DRIFT = 3
-    NITRO = 3
-    USE_POWERUP = 1
-    JUMP = -3
-    RESCUE = -5
+    VELOCITY        = 2
+    USE_POWERUP     = 1
+    JUMP            = -3
+    OUT_OF_TRACK    = -3
+    RESCUE          = -5
 
     def __init__(self, env: STKEnv):
         # TODO: add terminal states
+        # TODO: sanity check env while using it in model
+        # TODO: intelligently handle rewards for attachments
+        # TODO: rewards for using powerup - only if it hits other karts
+        # TODO: change value of USE_POWERUP when accounted for hitting other karts
         super(STKReward, self).__init__(env)
         self.reward = 0
         self.prevInfo = None
 
     def _get_reward(self, action, info):
 
-        reward = 0
+        early_end, reward = False, 0
         if self.prevInfo is None:
             self.prevInfo = info
 
-        # TODO: rewards for benificial attachments
         # action rewards
         #  0             1      2      3     4      5      6
         # {acceleration, brake, steer, fire, drift, nitro, rescue}
@@ -264,7 +269,6 @@ class STKReward(Wrapper):
         if action[6]:
             reward += STKReward.RESCUE
         if action[3] and info["powerup"]:
-            # TODO: give only if it damages other karts
             reward += STKReward.USE_POWERUP
 
         # finish rewards
@@ -277,23 +281,32 @@ class STKReward(Wrapper):
         elif info["position"] > self.prevInfo["position"]:
             reward -= STKReward.POSITION
 
+        # rewards for velocity
+        if info["velocity"] > (prevInfo["velocity"] + 1):
+            reward += STKReward.VELOCITY
+
+        if not info["is_inside_track"]:
+            reward += STKReward.OUT_OF_TRACK
+            early_end = True
+
         # don't go backwards
         reward += (info["overall_distance"] - self.prevInfo["overall_distance"])
 
         # rewards for collecting powerups
-        if info["powerup"] is not None:
+        if info["powerup"] is not None and prevInfo["powerup"] is None:
             reward += STKReward.COLLECT_POWERUP
 
         # misc rewards
-        if info["jumping"]:
+        if info["jumping"] and not prevInfo["jumping"]:
             reward += STKReward.JUMP
 
         self.prevInfo = info
-        return reward
+        return early_end, reward
 
     def step(self, action):
         state, reward, done, info = self.env.step(action)
-        reward += self._get_reward(action, info)
+        early_end, reward += self._get_reward(action, info)
+        # done = early_end or done
         return state, reward, done, info
 
 
