@@ -27,10 +27,13 @@ def main(args):
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
 
+
     env = make_env(id)()
-    model = Net(env.observation_space.shape, env.action_space.nvec, args.num_frames)
-    model.to(args.device)
+    obs_shape, act_shape = env.observation_space.shape, env.action_space.nvec
     env.close()
+
+    model = Net(obs_shape, act_shape, args.num_frames)
+    model.to(args.device)
     if args.model_path is not None:
         model.load_state_dict(torch.load(args.model_path))
 
@@ -49,6 +52,7 @@ def main(args):
 
         ppo.rollout()
         ppo.train()
+        env.close()
 
         if (i % args.eval_interval == 0 and i != 0):
             curr_reward = eval(model, writer, args)
