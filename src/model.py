@@ -2,8 +2,8 @@ import torch
 import numpy as np
 
 from torch import nn
-from torch.distributions import Categorical
 from torch.nn import functional as F
+from torch.distributions import Categorical
 
 
 class FCView(nn.Module):

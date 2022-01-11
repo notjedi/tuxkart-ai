@@ -65,8 +65,8 @@ class PPOBuffer:
         deltas = self.rewards + self.gamma * self.values[1:] - self.values[:-1]
         self.advantage = self.discounted_sum(deltas, self.gamma * self.lam)     # advantage estimate using GAE
         self.returns = self.discounted_sum(self.rewards, self.gamma)            # discounted sum of rewards
-        self.advantage = (self.advantage - np.mean(self.advantage, axis=1)) / np.std(self.advantage,
-                axis=1)
+        self.advantage = (self.advantage - np.mean(self.advantage, axis=0)) / np.std(self.advantage,
+                axis=0) # axis 0 because advantage is of shape (buffer_size, num_env)
         # self.returns = self.advantage - self.values[:-1]                      # some use this, some use the above
         del self.values
 
@@ -107,7 +107,7 @@ class PPO():
         to_numpy = lambda x: x.to(device='cpu').numpy()
 
         with torch.no_grad():
-            for i in range(self.buffer_size):
+            for i in trange(self.buffer_size):
 
                 images.append(np.array(self.env.get_images()))
                 obs = torch.from_numpy(np.transpose(np.array(images), (1, 2, 0, 3, 4))).to(self.device)
