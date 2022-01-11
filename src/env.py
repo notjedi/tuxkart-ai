@@ -152,7 +152,7 @@ class STKAgent():
         self.race.step()
         self.state.update()
         self.track.update()
-        self.path_width = np.array(track.path_width)
+        self.path_width = np.array(self.track.path_width)
         self.path_distance = np.array(self.track.path_distance)
         self.path_nodes = np.array(self._compute_lines(self.track.path_nodes))
         self.playerKart = self.state.players[0].kart
@@ -306,6 +306,6 @@ class STKReward(Wrapper):
 
     def step(self, action):
         state, reward, done, info = self.env.step(action)
-        early_end, reward += self._get_reward(action, info)
+        early_end, reward = self._get_reward(action, info)
         # done = early_end or done
         return state, reward, done, info
