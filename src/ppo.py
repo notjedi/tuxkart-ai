@@ -52,7 +52,7 @@ class PPOBuffer:
             [[x0 + discount * x1 + discount^2 * x2, x1 + discount * x2, x2]
              [y0 + discount * y1 + discount^2 * y2, y1 + discount * y2, y2]]
         """
-        return np.array(lfilter([1], [1, -discount], x[::-1], axis=0)[::-1]).astype(np.float32)
+        return np.flip(lfilter([1], [1, -discount], np.flip(x, axis=0), axis=0), axis=0)
 
     def compute_gae(self, next_value):
         # advantage = discounted sum of rewards - baseline estimate
