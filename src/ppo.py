@@ -70,11 +70,17 @@ class PPOBuffer:
         # self.returns = self.advantage - self.values[:-1]                      # some use this, some use the above
         del self.values
 
+    def can_train(self):
+        return (self.ptr - self.num_frames - 1) > 0
+
+    def get_ptr(self):
+        return self.ptr
+
     def get(self):
-        assert (self.ptr - self.num_frames - 1) > 0
         idx = np.random.randint(low=0, high=self.ptr-self.num_frames-1)
         idx_range = slice(idx, idx+self.num_frames)
         return self.obs[idx_range], self.actions[idx], self.returns[idx], self.log_probs[idx], self.advantage[idx]
+
 
 class PPO():
 
@@ -138,9 +144,12 @@ class PPO():
     def train(self):
 
         to_cuda = lambda x: torch.from_numpy(x).to(device=torch.device(self.device), dtype=torch.float32)
+        if not self.buffer.can_train():
+            print("Buffer size is too small")
+            return
 
         for epoch in trange(self.EPOCHS):
-            for timestep in (t:=tqdm((range(self.buffer_size)))):
+            for timestep in (t:=tqdm((range(self.buffer.get_ptr())))):
 
                 self.opt.zero_grad()
                 obs, act, returns, logp_old, adv = map(to_cuda, self.buffer.get())
