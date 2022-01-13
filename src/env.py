@@ -244,13 +244,16 @@ class STKReward(Wrapper):
     EARLY_END       = -10
 
     def __init__(self, env: STKEnv):
-        # TODO: sanity check env while using it in model
-        # TODO: intelligently handle rewards for attachments
+        # TODO: should i add fps?
+        # TODO: handle rewards for attachments
+        # TODO: check assertion error for frames when early end
         # TODO: rewards for using powerup - only if it hits other karts
         # TODO: change value of USE_POWERUP when accounted for hitting other karts
         super(STKReward, self).__init__(env)
         self.reward = 0
         self.prevInfo = None
+        self.total_jumps = 0
+        self.jump_threshold = 10
 
     def _get_reward(self, action, info):
 
@@ -293,9 +296,13 @@ class STKReward(Wrapper):
 
         if info["jumping"] and not self.prevInfo["jumping"]:
             reward += STKReward.JUMP
+            self.total_jumps += 1
+
+        if self.total_jumps > self.jump_threshold:
+            info["early_end"] = True
 
         if info.get("early_end", False):
-            reward += EARLY_END
+            reward += STKReward.EARLY_END
 
         self.prevInfo = info
         return early_end, reward

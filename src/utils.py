@@ -7,8 +7,8 @@ class STK:
 
     TRACKS = ['abyss', 'black_forest', 'candela_city', 'cocoa_temple', 'cornfield_crossing',
             'fortmagma', 'gran_paradiso_island', 'hacienda', 'lighthouse', 'minigolf', 'olivermath',
-            'overworld', 'ravenbridge_mansion', 'sandtrack', 'scotland', 'snowmountain',
-            'snowtuxpeak', 'stk_enterprise', 'volcano_island', 'xr591', 'zengarden']
+            'ravenbridge_mansion', 'sandtrack', 'scotland', 'snowmountain', 'snowtuxpeak',
+            'stk_enterprise', 'volcano_island', 'xr591', 'zengarden']
 
     KARTS = ['adiumy', 'amanda', 'beastie', 'emule', 'gavroche', 'gnu', 'hexley', 'kiki', 'konqi',
             'nolok', 'pidgin', 'puffy', 'sara_the_racer', 'sara_the_wizard', 'suzanne', 'tux',
