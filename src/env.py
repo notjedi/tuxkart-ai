@@ -62,20 +62,14 @@ class STKAgent():
         return self.playerKart.jumping
 
     def _get_powerup(self):
-        powerup = self.playerKart.powerup
-        if powerup.type == pystk.Powerup.Type.NOTHING:
-            return None
-        return powerup
+        return self.playerKart.powerup.type
 
     def _get_position(self) -> int:
         overallDist = sorted([kart.overall_distance for kart in self.state.karts], reverse=True)
         return overallDist.index(self.playerKart.overall_distance) + 1
 
     def _get_attachment(self):
-        attachment = self.playerKart.attachment
-        if attachment.type == pystk.Attachment.Type.NOTHING:
-            return None
-        return attachment
+        return self.playerKart.attachment.type
 
     def _get_finish_time(self) -> int:
         return int(self.playerKart.finish_time)
@@ -204,6 +198,7 @@ class STKEnv(Env):
     def __init__(self, env: STKAgent):
         super(STKEnv, self).__init__()
         self.env = env
+        self.observation_shape = self.env.observation_shape
         self.observation_space = Box(low=np.zeros(self.env.observation_shape),
                                     high=np.full(self.env.observation_shape, 255,
                                     dtype=np.float32))
@@ -250,9 +245,20 @@ class STKReward(Wrapper):
         # TODO: change value of USE_POWERUP when accounted for hitting other karts
         super(STKReward, self).__init__(env)
         self.reward = 0
+        self.num_infos = 4
         self.prevInfo = None
         self.total_jumps = 0
         self.jump_threshold = 10
+        self.idx_array = np.array_split(np.arange(self.observation_shape[0]), self.num_infos)
+
+    def encode_info(self, info):
+        info_image  = np.zeros(self.observation_shape)
+        info_image[self.idx_array[0], :, :] = info["nitro"]
+        info_image[self.idx_array[1], :, :] = info["position"]
+        info_image[self.idx_array[2], :, :] = info["powerup"].value # value of NOTHING is 0
+        info_image[self.idx_array[3], :, :] = info["attachment"].value # value of NOTHING is 9
+        print(info_image)
+        return info_image
 
     def _get_reward(self, action, info):
 
@@ -269,7 +275,7 @@ class STKReward(Wrapper):
             reward += STKReward.DRIFT
         if action[6]:
             reward += STKReward.RESCUE
-        if action[3] and info["powerup"]:
+        if action[3] and info["powerup"].value:
             reward += STKReward.USE_POWERUP
 
         if info["done"]:
@@ -290,7 +296,7 @@ class STKReward(Wrapper):
         # don't go backwards - note that this can also implicitly add -ve rewards
         reward += (info["overall_distance"] - self.prevInfo["overall_distance"])
 
-        if info["powerup"] is not None and self.prevInfo["powerup"] is None:
+        if info["powerup"].value and not self.prevInfo["powerup"].value:
             reward += STKReward.COLLECT_POWERUP
 
         if info["jumping"] and not self.prevInfo["jumping"]:
@@ -308,6 +314,7 @@ class STKReward(Wrapper):
 
     def step(self, action):
         state, reward, done, info = self.env.step(action)
+        info["encoded_image"] = self.encode_info(info)
         early_end, reward = self._get_reward(action, info)
         done = early_end or done
         return state, reward, done, info
