@@ -39,7 +39,7 @@ def main(args):
 
     race_config_args = { 'track': args.track, 'kart': args.kart }
     prev_reward, curr_reward = 0, 0
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=1e-5)
     writer = SummaryWriter(log_dir=args.log_dir)
 
     for i in trange(args.num_global_steps):
