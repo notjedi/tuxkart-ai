@@ -239,6 +239,7 @@ class STKReward(Wrapper):
     COLLECT_POWERUP = 3
     VELOCITY        = 2
     USE_POWERUP     = 1
+    BACKWARDS       = -10
     JUMP            = -3
     OUT_OF_TRACK    = -3
     RESCUE          = -5
@@ -247,40 +248,34 @@ class STKReward(Wrapper):
     def __init__(self, env: STKEnv):
         # TODO: should i add fps?
         # TODO: handle rewards for attachments
+        # TODO: add reasons on why env is terminated
         # TODO: rewards for using powerup - only if it hits other karts
         # TODO: change value of USE_POWERUP when accounted for hitting other karts
         super(STKReward, self).__init__(env)
         self.reward = 0
-        self.num_infos = 4
         self.prevInfo = None
         self.total_jumps = 0
+        self.no_movement = 0
         self.jump_threshold = 10
-        self.idx_array = np.array_split(np.arange(self.observation_shape[0]), self.num_infos)
-
-    def encode_info(self, info):
-        info_image  = np.zeros(self.observation_shape)
-        info_image[self.idx_array[0], :, :] = info["nitro"]
-        info_image[self.idx_array[1], :, :] = info["position"]
-        info_image[self.idx_array[2], :, :] = info["powerup"].value # value of NOTHING is 0
-        info_image[self.idx_array[3], :, :] = info["attachment"].value # value of NOTHING is 9
-        print(info_image)
-        return info_image
+        self.no_movement_threshold = 30
+        self.out_of_track_count = 0
+        self.out_of_track_threshold = 15
 
     def _get_reward(self, action, info):
 
+        reward = 0
         if self.prevInfo is None:
             self.prevInfo = info
-        early_end, reward = self.prevInfo.get("early_end", False), 0
 
         #  0             1      2      3     4      5      6
         # {acceleration, brake, steer, fire, drift, nitro, rescue}
         # [2,            2,     3,     2,    2,     2,     2]   # action_space
         if action[5] and info["nitro"]:
             reward += STKReward.NITRO
-        if action[4]:
+        if action[4] and info["velocity"] > 10:
             reward += STKReward.DRIFT
-        if action[6]:
-            reward += STKReward.RESCUE
+        # if action[6]:
+        #     reward += STKReward.RESCUE
         if action[3] and info["powerup"].value:
             reward += STKReward.USE_POWERUP
 
@@ -297,10 +292,22 @@ class STKReward(Wrapper):
 
         if not info["is_inside_track"]:
             reward += STKReward.OUT_OF_TRACK
-            info["early_end"] = True
+            self.out_of_track_count += 1
+            if self.out_of_track_count > self.out_of_track_threshold:
+                info["early_end"] = True
+                info["early_end_reason"] = "Outside track"
 
         # don't go backwards - note that this can also implicitly add -ve rewards
         reward += (info["overall_distance"] - self.prevInfo["overall_distance"])
+        if info["overall_distance"] <= self.prevInfo["overall_distance"]:
+            reward += STKReward.BACKWARDS
+            self.no_movement += 1
+        else:
+            reward += (info["overall_distance"] - self.prevInfo["overall_distance"])
+
+        if self.no_movement >= self.no_movement_threshold:
+            info["early_end"] = True
+            info["early_end_reason"] = "No movement"
 
         if info["powerup"].value and not self.prevInfo["powerup"].value:
             reward += STKReward.COLLECT_POWERUP
@@ -311,16 +318,18 @@ class STKReward(Wrapper):
 
         if self.total_jumps > self.jump_threshold:
             info["early_end"] = True
+            info["early_end_reason"] = "Jump threshold reached"
 
         if info.get("early_end", False):
             reward += STKReward.EARLY_END
 
         self.prevInfo = info
-        return early_end, reward
+        return reward
 
     def step(self, action):
         state, reward, done, info = self.env.step(action)
-        info["encoded_image"] = self.encode_info(info)
-        early_end, reward = self._get_reward(action, info)
-        done = early_end or done
+        reward = self._get_reward(action, info)
+        if info.get("early_end", False):
+            done = True
+            print(f'env_id: {self.env.env.id} - {info.get("early_end_reason", "None")}')
         return state, reward, done, info
