@@ -7,7 +7,7 @@ def test_env():
     env = make_env(0)()
     env.reset()
 
-    action = [1, 0, 0, 0, 1, 0, 0]
+    action = [1, 0, 1, 0, 0, 0]
     for _ in range(100):
         # action = env.action_space.sample()
         image, reward, _, info = env.step(action)
@@ -21,18 +21,21 @@ def test_env():
 def test_model():
 
     import torch
+    from torchinfo import summary
     from src.model import Net
 
-    OBS_DIM = (60, 40, 3)
-    ACT_DIM = (2, 2, 3, 2, 2, 2, 2)
+    OBS_DIM = (400, 200, 3)
+    ACT_DIM = (2, 2, 3, 2, 2, 2)
     DEVICE, BATCH_SIZE, NUM_FRAMES = 'cuda', 4, 5
 
-    randInput = torch.randint(0, 10, (BATCH_SIZE, OBS_DIM[-1], NUM_FRAMES, *OBS_DIM[:-1]),
+    rand_input = torch.randint(0, 255, (BATCH_SIZE, OBS_DIM[-1], NUM_FRAMES, *OBS_DIM[:-1]),
             device=DEVICE, dtype=torch.float32)
+    print(rand_input.shape)
     model = Net(OBS_DIM, ACT_DIM, NUM_FRAMES)
     model.to(DEVICE)
 
-    policy, value = model(randInput)
+    # summary(model, input_data=rand_input, verbose=1) # remove MultiCategorical while using summary
+    policy, value = model(rand_input)
     print(policy.sample(), value, sep='\n')
     print("src/model.py test successful")
 
@@ -46,7 +49,7 @@ def test_ppo():
     from src.ppo import PPO
     from src.model import Net
     from src.env import STKEnv
-    from src.utils import STK, make_env
+    from src.utils import STK, Logger, make_env
 
     DEVICE, BUFFER_SIZE, NUM_FRAMES, NUM_ENVS, LR = 'cuda', 8, 5, 1, 1e-3
     env = SubprocVecEnv([make_env(id) for id in range(NUM_ENVS)], start_method='spawn')
@@ -56,11 +59,13 @@ def test_ppo():
     model.to(DEVICE)
 
     buf_args = { 'buffer_size': BUFFER_SIZE, 'batch_size': NUM_ENVS, 'obs_dim': obs_shape,
-            'act_dim': act_shape, 'num_frames': NUM_FRAMES, 'gamma': PPO.GAMMA, 'lam': PPO.LAMBDA }
+            'act_dim': act_shape, 'num_frames': NUM_FRAMES-1, 'gamma': PPO.GAMMA, 'lam': PPO.LAMBDA
+            }
     optimizer = optim.Adam(model.parameters(), lr=LR)
     writer = SummaryWriter('/tmp/tensorboard')
+    logger = Logger(writer)
 
-    ppo = PPO(env, model, optimizer, writer, DEVICE, **buf_args)
+    ppo = PPO(env, model, optimizer, logger, DEVICE, **buf_args)
     ppo.rollout()
     ppo.train()
     env.close()
