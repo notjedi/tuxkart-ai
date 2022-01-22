@@ -75,7 +75,7 @@ class STKAgent():
         return int(self.playerKart.finish_time)
 
     def _get_overall_distance(self) -> int:
-        return max(0, int(self.playerKart.overall_distance))
+        return max(0, self.playerKart.overall_distance)
 
     def _get_kart_dist_from_center(self):
         # compute the dist b/w the kart and the center of the track
@@ -101,12 +101,13 @@ class STKAgent():
         # {acceleration, brake, steer, fire, drift, nitro, rescue}
         # action_space = [2, 2, 3, 2, 2, 2, 2]
         self.currentAction.acceleration = action[0]
-        self.currentAction.brake = bool(action[1])
+        self.currentAction.brake = bool(max(0, action[1] - action[0])) # only True when acc is not 1
         self.currentAction.steer = action[2] - 1
         self.currentAction.fire = bool(action[3])
         self.currentAction.drift = bool(action[4])
         self.currentAction.nitro = bool(action[5])
-        self.currentAction.rescue = bool(action[6])
+        # self.currentAction.rescue = bool(action[6])
+        self.currentAction.rescue = False
 
     def get_env_info(self) -> dict:
         info = {}
@@ -141,15 +142,20 @@ class STKAgent():
         return self.playerKart.finish_time > 0
 
     def reset(self):
-        self.race.start()
-        self.race.step()
-        self.state.update()
-        self.track.update()
+        if not self.started:
+            self.race.start()
+            self._update_action([1, 0, 1, 0, 0, 0, 0])
+            for _ in range(50):
+                self.race.step(self.currentAction)
+                self.state.update()
+                self.track.update()
+                self.image = np.array(self.race.render_data[0].image, dtype=np.float32)
+            self.path_width = np.array(self.track.path_width)
+            self.path_distance = np.array(self.track.path_distance)
+            self.path_nodes = np.array(self._compute_lines(self.track.path_nodes))
+            self.playerKart = self.state.players[0].kart
         self.started = True
-        self.path_width = np.array(self.track.path_width)
-        self.path_distance = np.array(self.track.path_distance)
-        self.path_nodes = np.array(self._compute_lines(self.track.path_nodes))
-        self.playerKart = self.state.players[0].kart
+        return self.image
 
     def step(self, action:list):
         if not self.started:
@@ -204,14 +210,14 @@ class STKEnv(Env):
                                     dtype=np.float32))
 
         # {acceleration, brake, steer, fire, drift, nitro, rescue}
-        self.action_space = MultiDiscrete([2, 2, 3, 2, 2, 2, 2])
+        self.action_space = MultiDiscrete([2, 2, 3, 2, 2, 2])
 
     def step(self, action):
         assert self.action_space.contains(action), f'Invalid Action {action}'
         return self.env.step(action)
 
     def reset(self):
-        self.env.reset()
+        return self.env.reset()
 
     def render(self, mode: str = 'human'):
         if mode == 'rgb_array':
