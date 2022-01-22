@@ -5,55 +5,57 @@ import numpy as np
 from tqdm import tqdm
 from pathlib import Path
 from collections import deque
+from matplotlib import pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
 from src.model import Net
-from src.utils import make_env
+from src.utils import Logger, make_env, get_encoder, action_to_dict
 
-def eval(env, model, writer, args, log=False, render=False):
+def eval(env, model, logger, args, log=False, render=False):
 
-    if render:
-        from gym.envs.classic_control.rendering import SimpleImageViewer
-        viewer = SimpleImageViewer()
-        assert env.num_envs == 1, 'Render mode is only supported for num_envs = 1'
+    assert env.num_envs == 1, 'eval is only supported for num_envs = 1'
+    prevInfo = [None for _ in range(env.num_envs)]
     images = env.get_images()
     images = deque([np.zeros_like(images) for _ in range(args.num_frames)], maxlen=args.num_frames)
     to_numpy = lambda x: x.to(device='cpu').numpy()
+    encoder = get_encoder(env.observation_space.shape)
     tot_reward = 0
 
     with torch.no_grad():
-        for i in (t:=tqdm(range(args.eval_steps))):
+        t = tqdm(range(args.eval_steps))
+        for i in t:
             images.append(np.array(env.get_images()))
+            encoded_infos = encoder(prevInfo)
+            images[0] = encoded_infos
             obs = torch.from_numpy(np.transpose(np.array(images), (1, 2, 0, 3, 4))).to(args.device)
 
             dist, value = model(obs)
-            action = dist.mode()
-            log_prob = dist.log_prob(action)
-            _, reward, done, _ = env.step(to_numpy(action))
-            tot_reward += reward
-            t.set_description(f"rewards: {sum(reward) / len(reward)}")
+            action = to_numpy(dist.mode())
+            _, reward, done, info = env.step(action)
+            sum_reward = reward.sum()
+            tot_reward += sum_reward
+            prevInfo = info
+            t.set_description(f"rewards: {sum_reward}")
 
             if log:
-                writer.add_scalar('eval/rewards', reward, i)
-                writer.add_scalar('eval/values', value.item(), i)
-                writer.add_scalar('eval/total_rewards', tot_reward, i)
-                writer.add_image('eval/image', images[-1].squeeze(), i, dataformats='CWH')
+                logger.log_eval(sum_reward, value, tot_reward, images[-1].squeeze())
 
             if render:
-                image = env.env_method('render')
-                viewer.imshow(image)
+                image = np.array(env.env_method('render')).squeeze()
+                plt.imshow(image.astype(np.uint8))
+                plt.pause(0.1)
 
             if done.any():
                 break
 
-    writer.flush()
     return tot_reward
 
 
 def main(args):
 
     writer = SummaryWriter(log_dir=args.log_dir)
+    logger = Logger(writer)
     race_config_args = { 'track': args.track, 'kart': args.kart, 'numKarts': args.num_karts,
             'laps': args.laps, 'reverse': args.reverse, 'difficulty': args.difficulty }
     env = SubprocVecEnv([make_env(id, args.graphic, race_config_args) for id in range(1)],
@@ -64,7 +66,7 @@ def main(args):
     if args.model_path is not None:
         model.load_state_dict(torch.load(args.model_path))
 
-    reward = eval(env, model, writer, args, log=True)
+    reward = eval(env, model, logger, args, log=True, render=True)
     print(f'Total rewards: {reward}')
     env.close()
 
