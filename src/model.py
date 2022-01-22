@@ -245,20 +245,3 @@ class Net(nn.Module):
         policy = self.actor(obs)
         value = self.critic(obs)
         return policy, value
-
-if __name__ == '__main__':
-
-    from torchinfo import summary
-    from model import Net
-    from utils import STK, make_env
-
-    DEVICE, NUM_FRAMES, NUM_ENVS = 'cuda', 16, 5, 2
-    env = SubprocVecEnv([make_env(id) for id in range(NUM_ENVS)], start_method='spawn')
-    obs_shape, act_shape = env.observation_space.shape, env.action_space.nvec
-    env.close()
-
-    model = Net(obs_shape, act_shape, NUM_FRAMES)
-    model.to(DEVICE)
-
-    rand_input = torch.rand((1, 3, 5, 400, 600))
-    summary(model, input_data=rand_input, verbose=1)
