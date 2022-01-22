@@ -4,9 +4,9 @@ import numpy as np
 from tqdm import tqdm, trange
 from collections import deque
 from scipy.signal import lfilter
-from torch.utils.tensorboard import SummaryWriter
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
+from src.utils import get_encoder
 
 class PPOBuffer:
     """
@@ -101,14 +101,16 @@ class PPO():
         self.model = model
         self.opt = optimizer
         self.device = device
-        self.writer = writer
+        self.logger = logger
+        self.info_encoder = get_encoder(env.observation_space.shape)
         buffer_args['gamma'], buffer_args['lam'] = self.GAMMA, self.LAMBDA
         self.buffer = PPOBuffer(**buffer_args)
-        self.num_frames = buffer_args['num_frames']
+        self.num_frames = buffer_args['num_frames'] + 1
         self.buffer_size = buffer_args['buffer_size']
 
     def rollout(self):
 
+        prevInfo = [None for _ in range(self.env.num_envs)]
         images = self.env.get_images()
         images = deque([np.zeros_like(images) for _ in range(self.num_frames)], maxlen=self.num_frames)
         to_numpy = lambda x: x.to(device='cpu').numpy()
@@ -117,6 +119,8 @@ class PPO():
             for i in trange(self.buffer_size):
 
                 images.append(np.array(self.env.get_images()))
+                encoded_infos = self.info_encoder(prevInfo)
+                images[0] = encoded_infos # basically appending left without popping off the last element from the other side
                 obs = torch.from_numpy(np.transpose(np.array(images), (1, 2, 0, 3, 4))).to(self.device)
 
                 dist, value = self.model(obs)
@@ -165,23 +169,10 @@ class PPO():
                 critic_loss = self.CRITIC_DISCOUNT * ((value_new.squeeze() - returns)**2).mean()
                 entropy_loss = self.ENTROPY_BETA * dist.entropy().mean()
 
-                loss = actor_loss + critic_loss - entropy_loss
+                loss = actor_loss + critic_loss + entropy_loss
                 loss.backward()
                 self.opt.step()
 
                 step = epoch * timestep
                 t.set_description(f"loss: {loss}")
-                self.writer.add_scalar("train/ratio", ratio.item(), step)
-                self.writer.add_scalar("train/advantage", adv.item(), step)
-                self.writer.add_scalar("train/returns", returns.item(), step)
-                self.writer.add_scalar("train/log_old", logp_old.item(), step)
-                self.writer.add_scalar("train/log_new", logp_new.item(), step)
-                self.log(step, actor_loss, critic_loss, entropy_loss, loss)
-
-    def log(self, step, actor_loss, critic_loss, entropy_loss, loss):
-
-        self.writer.add_scalar("train/entropy_loss", entropy_loss.item(), step)
-        self.writer.add_scalar("train/policy_loss", actor_loss.item(), step)
-        self.writer.add_scalar("train/value_loss", critic_loss.item(), step)
-        self.writer.add_scalar("train/loss", loss.item(), step)
-        self.writer.flush()
+                self.logger.log_train(step, actor_loss, critic_loss, entropy_loss, loss)
