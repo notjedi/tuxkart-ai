@@ -19,8 +19,8 @@ class STK:
             "ld": pystk.GraphicsConfig.ld,
             "none": pystk.GraphicsConfig.none }
 
-    WIDTH = 600
-    HEIGHT = 400
+    WIDTH = 400
+    HEIGHT = 200
 
     @staticmethod
     def get_graphic_config(quality='hd'):
@@ -40,12 +40,37 @@ class STK:
         config.difficulty = difficulty
         config.num_kart = numKarts
         config.reverse = reverse
+        config.step_size = 0.045
         config.track = track
         config.laps = laps
         config.players[0].team = 0
         config.players[0].kart = kart
         config.players[0].controller = pystk.PlayerConfig.Controller.PLAYER_CONTROL
         return config
+
+
+class Logger():
+
+    def __init__(self, writer):
+        self.writer = writer
+        self.train_step = 0
+        self.eval_step = 0
+
+    def log_train(self, step, actor_loss, critic_loss, entropy_loss, loss):
+        self.writer.add_scalar("train/entropy_loss", entropy_loss.item(), self.train_step)
+        self.writer.add_scalar("train/policy_loss", actor_loss.item(), self.train_step)
+        self.writer.add_scalar("train/value_loss", critic_loss.item(), self.train_step)
+        self.writer.add_scalar("train/loss", loss.item(), self.train_step)
+        self.writer.flush()
+        self.train_step += 1
+
+    def log_eval(self, reward, value, tot_reward, image):
+        self.writer.add_scalar('eval/rewards', reward, self.eval_step)
+        self.writer.add_scalar('eval/values', value.item(), self.eval_step)
+        self.writer.add_scalar('eval/total_rewards', tot_reward, self.eval_step)
+        self.writer.add_image('eval/image', image, self.eval_step, dataformats='CWH')
+        self.writer.flush()
+        self.eval_step += 1
 
 
 def make_env(id: int, quality='hd', race_config_args={}):
@@ -66,5 +91,42 @@ def make_env(id: int, quality='hd', race_config_args={}):
     return _init
 
 
-def calc_params(model):
-   return sum([np.prod(param.shape) for param in model.parameters()])
+def get_encoder(obs_shape):
+    # encodes for channel-last layout
+    import numpy as np
+
+    num_info = 4
+    reversed_obs_shape = tuple(reversed(obs_shape))
+    idx_array = np.array_split(np.arange(obs_shape[0]), num_info)
+
+    def encode(infos):
+        info_image  = np.zeros((len(infos), ) + reversed_obs_shape, dtype=np.float32)
+
+        for i, info in enumerate(infos):
+            if info is None:
+                continue
+            info_image[i, :, :, idx_array[0]] = info["nitro"]
+            info_image[i, :, :, idx_array[1]] = info["position"]
+            info_image[i, :, :, idx_array[2]] = info["powerup"].value # val of NOTHING = 0
+            info_image[i, :, :, idx_array[3]] = info["attachment"].value # val of NOTHING = 9
+        return info_image
+
+    return encode
+
+
+def action_to_dict(action):
+    # {acceleration, brake, steer, fire, drift, nitro, rescue}
+    # action_space = [2, 2, 3, 2, 2, 2, 2]
+    action_dict  = {}
+    action_dict ["acceleration"] = action[0]
+    action_dict ["brake"] = bool(action[1])
+    action_dict ["steer"] = action[2] - 1
+    action_dict ["fire "] = bool(action[3])
+    action_dict ["drift"] = bool(action[4])
+    action_dict ["nitro"] = bool(action[5])
+    # action_dict["rescue"] = bool(action[6])
+    return action_dict
+
+
+def calc_paaction_dict rams(model):
+   return saction_dict um([np.prod(param.shape) for param in model.parameters()])
