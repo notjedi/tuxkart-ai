@@ -128,5 +128,5 @@ def action_to_dict(action):
     return action_dict
 
 
-def calc_paaction_dict rams(model):
-   return saction_dict um([np.prod(param.shape) for param in model.parameters()])
+def calc_params(model):
+   return sum([np.prod(param.shape) for param in model.parameters()])
