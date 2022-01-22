@@ -25,6 +25,8 @@ class PPOBuffer:
         self.reset()
 
     def reset(self):
+        # an optimization would be to store the dict instead of the array
+        self.infos = []
         self.obs = np.zeros((self.buffer_size, self.batch_size, *reversed(self.obs_dim)), dtype=np.float32)
         self.actions = np.zeros((self.buffer_size, self.batch_size, len(self.act_dim)), dtype=np.float32)
         self.rewards = np.zeros((self.buffer_size, self.batch_size), dtype=np.float32)
@@ -33,12 +35,12 @@ class PPOBuffer:
         self.log_probs = np.zeros((self.buffer_size, self.batch_size), dtype=np.float32)
         self.advantage = np.zeros((self.buffer_size, self.batch_size), dtype=np.float32)
 
-    def save(self, obs, act, reward, value, log_prob):
-        assert self.ptr < self.buffer_size
+    def save(self, obs, act, reward, value, infos, log_prob):
         self.obs[self.ptr] = obs
         self.actions[self.ptr] = act
         self.rewards[self.ptr] = reward
         self.values[self.ptr] = value
+        self.infos.append(infos)
         self.log_probs[self.ptr] = log_prob
         self.ptr += 1
 
@@ -65,9 +67,7 @@ class PPOBuffer:
         deltas = self.rewards + self.gamma * self.values[1:] - self.values[:-1]
         self.advantage = self.discounted_sum(deltas, self.gamma * self.lam)     # advantage estimate using GAE
         self.returns = self.discounted_sum(self.rewards, self.gamma)            # discounted sum of rewards
-        self.advantage = (self.advantage - np.mean(self.advantage, axis=0)) /
-        (np.std(self.advantage, axis=0) + 1e-6) # axis 0 because advantage is of shape (buffer_size,
-        num_env)
+        self.advantage = (self.advantage - np.mean(self.advantage, axis=0)) / (np.std(self.advantage, axis=0) + 1e-6) # axis 0 because advantage is of shape (buffer_size,
         # self.returns = self.advantage - self.values[:-1]                      # some use this, some use the above
         del self.values
 
@@ -78,21 +78,21 @@ class PPOBuffer:
         return self.ptr
 
     def get(self):
-        idx = np.random.randint(low=0, high=self.ptr-self.num_frames-1)
-        idx_range = slice(idx, idx+self.num_frames)
-        return self.obs[idx_range], self.actions[idx], self.returns[idx], self.log_probs[idx], self.advantage[idx]
+        idx = np.random.randint(low=self.num_frames, high=self.ptr)
+        idx_range = slice(idx-self.num_frames, idx)
+        return self.obs[idx_range], self.actions[idx], self.infos[idx], self.returns[idx], self.log_probs[idx], self.advantage[idx]
 
 
 class PPO():
 
-    EPOCHS = 3
+    EPOCHS = 2
     GAMMA = 0.9
     LAMBDA = 0.95
     EPSILON = 0.2
     ENTROPY_BETA = 0.2
     CRITIC_DISCOUNT = 0.5
 
-    def __init__(self, env: SubprocVecEnv, model, optimizer, writer, device, **buffer_args):
+    def __init__(self, env: SubprocVecEnv, model, optimizer, logger, device, **buffer_args):
         """
         :param env: list of STKEnv or vectorized envs?
         """
