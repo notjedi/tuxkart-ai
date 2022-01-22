@@ -128,36 +128,48 @@ class PPO():
                 log_prob = dist.log_prob(action)
                 _, reward, done, info = self.env.step(to_numpy(action))
                 self.buffer.save(images[-1], to_numpy(action), reward,
-                        to_numpy(value.squeeze(dim=-1)), to_numpy(log_prob))
+                        to_numpy(value.squeeze(dim=-1)), prevInfo, to_numpy(log_prob))
+                prevInfo = info
 
                 if done.any():
-                    print('-------------------------------------------------------------')
-                    print(f'Trajectory cut off at {i} time steps')
-                    env_infos = np.array(self.env.env_method('get_env_info'))[done]
-                    for env_info in env_infos:
-                        for key, value in env_info.items():
-                            print(f'{key}: {value}')
-                    print('-------------------------------------------------------------\n')
                     break
 
+            print('-------------------------------------------------------------')
+            print(f'Trajectory cut off at {i+1} time steps')
+            env_infos = np.array(self.env.env_method('get_env_info'))
+            race_infos = np.array(info)
+
+            for env_info, race_info in zip(env_infos, race_infos):
+                for key, value in env_info.items():
+                    print(f'{key}: {value}')
+                print(f'done: {race_info["done"]}')
+                print(f'velocity: {race_info["velocity"]}')
+                print(f'overall_distance: {race_info["overall_distance"]}')
+                print()
+            print('-------------------------------------------------------------\n')
+
             images.append(np.array(self.env.get_images()))
+            encoded_infos = self.info_encoder(prevInfo)
+            images[0] = encoded_infos
             obs = torch.from_numpy(np.transpose(np.array(images), (1, 2, 0, 3, 4))).to(self.device)
             _, next_value = self.model(obs)
             self.buffer.compute_gae(to_numpy(next_value.squeeze(dim=1)))
-            self.env.close()
 
     def train(self):
 
-        to_cuda = lambda x: torch.from_numpy(x).to(device=torch.device(self.device), dtype=torch.float32)
+        to_cuda = lambda x: torch.from_numpy(x).to(device=torch.device(self.device),
+            dtype=torch.float32) if isinstance(x, np.ndarray) else x
         if not self.buffer.can_train():
             print("Buffer size is too small")
             return
 
         for epoch in trange(self.EPOCHS):
-            for timestep in (t:=tqdm((range(self.buffer.get_ptr())))):
+            t = tqdm((range(self.buffer.get_ptr())))
+            for timestep in t:
 
                 self.opt.zero_grad()
-                obs, act, returns, logp_old, adv = map(to_cuda, self.buffer.get())
+                obs, act, info, returns, logp_old, adv = map(to_cuda, self.buffer.get())
+                obs = torch.cat((to_cuda(self.info_encoder(info)).unsqueeze(dim=0), obs), dim=0)
                 dist, value_new = self.model(obs.permute(1, 2, 0, 3, 4)) # transpose axes because it is originally in shape (D, N, C, H, W)
                 logp_new = dist.log_prob(act)
 
