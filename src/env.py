@@ -147,7 +147,7 @@ class STKAgent():
         if not self.started:
             self.race.start()
             self._update_action([1, 0, 1, 0, 0, 0, 0])
-            for _ in range(30):
+            for _ in range(20):
                 self.race.step(self.currentAction)
                 self.state.update()
                 self.track.update()
@@ -233,17 +233,15 @@ class STKEnv(gym.Env):
 class STKReward(gym.Wrapper):
 
     FINISH          = 30
-    POSITION        = 5
+    POSITION        = 10
     DRIFT           = 3
     NITRO           = 3
-    COLLECT_POWERUP = 3
-    VELOCITY        = 2
-    USE_POWERUP     = 1
-    BACKWARDS       = -10
+    COLLECT_POWERUP = 5
+    VELOCITY        = 3
+    USE_POWERUP     = 2
     JUMP            = -3
-    OUT_OF_TRACK    = -3
-    RESCUE          = -5
-    EARLY_END       = -10
+    OUT_OF_TRACK    = -10
+    EARLY_END       = -20
 
     def __init__(self, env: STKEnv):
         # TODO: should i add fps?
@@ -263,7 +261,7 @@ class STKReward(gym.Wrapper):
 
     def _get_reward(self, action, info):
 
-        reward = 0
+        reward = -1
         if self.prevInfo is None:
             self.prevInfo = info
 
@@ -302,8 +300,6 @@ class STKReward(gym.Wrapper):
         if info["overall_distance"] <= self.prevInfo["overall_distance"]:
             reward += STKReward.BACKWARDS
             self.no_movement += 1
-        else:
-            reward += (info["overall_distance"] - self.prevInfo["overall_distance"])
 
         if self.no_movement >= self.no_movement_threshold:
             info["early_end"] = True
@@ -347,7 +343,7 @@ class GrayScaleObservation(gym.ObservationWrapper):
         return torch.from_numpy(observation)
 
     def observation(self, obs):
-        return self.transform(self.permute_orientation(obs))
+        return self.transform(self.permute_orientation(obs)).squeeze(dim=0)
 
 
 class SkipFrame(gym.Wrapper):
