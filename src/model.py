@@ -6,58 +6,7 @@ from torch.nn import functional as F
 from torch.distributions import Categorical
 
 
-class FCView(nn.Module):
-    """
-    Flatten conv layer.
-    """
-
-    def __init__(self):
-        super(FCView, self).__init__()
-
-    def forward(self, x):
-        """
-        :param x: of shape(batch_size, channels, H, W)
-        :return: Tensor of shape (batch_size, channels * H * W)
-        """
-        shape = x.data.size(0)
-        x = x.view(shape, -1)
-        return x
-
-
-class ConvBlock(nn.Module):
-    """
-    Wrapper class for a Convolution layer.
-    References:
-        1. https://pytorch.org/docs/stable/generated/torch.nn.Conv3d.html
-        2. https://discuss.pytorch.org/t/how-to-do-convolution-on-tube-tensors-3d-conv/21446
-        3. https://discuss.pytorch.org/t/feeding-3d-volumes-to-conv3d/32378
-    W_out = ((W_in + 2P - (F - 1) - 1) / S) + 1 (assuming dilation=1)
-
-    :param in_channels: Number of input channels
-    :param out_channels: Number of output channels
-    :param kernel_size: Size of the kernel/filter
-    :param padding: The size of the zero-padding
-    :param stride: Value of stride
-    """
-
-    def __init__(self, in_channels, out_channels, kernel_size, padding=1, stride=1):
-        super(ConvBlock, self).__init__()
-        self.conv = nn.Conv3d(in_channels, out_channels, kernel_size=kernel_size,
-                padding=padding, stride=stride)
-        self.batch_norm = nn.BatchNorm3d(out_channels)
-
-    def forward(self, x):
-        """
-        Forward pass for the conv layer
-
-        :param x: of shape(batch_size, in_channels, H, W)
-        :return: Tensor of shape (batch_size, out_channels, H, W)
-        """
-        x = F.relu(self.conv(x))
-        return self.batch_norm(x)
-
-
-class ResBlock(nn.Module):
+class ResNet(nn.Module):
     """
     A class implementing ResNet from the ImageNet paper.
 
@@ -68,24 +17,13 @@ class ResBlock(nn.Module):
     :param stride: Value of stride
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, padding=1, stride=1):
-        super(ResBlock, self).__init__()
-        self.conv1 = nn.Conv3d(in_channels, out_channels, kernel_size=kernel_size,
-                               padding=padding, stride=stride, bias=False)
-        self.conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=kernel_size,
-                               padding=padding, stride=stride, bias=False)
-
-        self.bn1 = nn.BatchNorm3d(out_channels)
-        self.bn2 = nn.BatchNorm3d(out_channels)
+    def __init__(self, module):
+        super(ResNet, self).__init__()
+        self.module = module
 
     def forward(self, x):
-        out = self.conv1(x)
-        out = self.bn1(F.relu(out))
-        out = F.relu(self.conv2(out))
-        # skip connection
         # https://discuss.pytorch.org/t/encounter-the-runtimeerror-one-of-the-variables-needed-for-gradient-computation-has-been-modified-by-an-inplace-operation/836/5
-        out = out + x
-        return self.bn2(out)
+        return self.module(x) + x
 
 
 class MultiCategorical():
@@ -133,24 +71,21 @@ class Actor(nn.Module):
     :param action_shape: The shape of the action space Eg: `MultiDiscrete().nvec`
     """
 
-    def __init__(self, obs_shape, action_shape):
+    def __init__(self, latent_shape, action_shape):
         super(Actor, self).__init__()
 
-        self.obs_shape = obs_shape
-        self.action_shape = action_shape
-        self.reshape = FCView()
-        self.actor1 = ConvBlock(in_channels=128, out_channels=64,
-                kernel_size=3, padding=1, stride=1)
-        self.actor2 = ConvBlock(in_channels=64, out_channels=1,
-                kernel_size=3, padding=1, stride=1)
-        self.fc_actor = nn.Linear(np.prod((1,) + self.obs_shape), np.sum(self.action_shape))
+        self.actor = nn.Sequential(
+            nn.Conv2d(in_channels=128, out_channels=1, kernel_size=3, padding=1, stride=1),
+            nn.Tanh(),
+            nn.Flatten(),
+            nn.Linear(np.prod((1,) + latent_shape[-2:]), np.sum(action_shape))
+        )
         self.dist = MultiCategorical(action_shape)
 
-    def forward(self, x):
-        x = F.relu(self.actor1(x))
-        x = self.actor2(x)
-        x = self.fc_actor(self.reshape(x))
-        return self.dist.update_logits(logits=x)
+    def forward(self, inputs):
+        inputs = self.actor(inputs)
+        return inputs
+        # return self.dist.update_logits(logits=inputs)
 
 
 class Critic(nn.Module):
@@ -160,18 +95,18 @@ class Critic(nn.Module):
     :param obs_shape: The shape of the input image (W, H, C)
     """
 
-    def __init__(self, obs_shape):
+    def __init__(self, latent_shape):
         super(Critic, self).__init__()
 
-        self.obs_shape = obs_shape
-        self.reshape = FCView()
-        self.critic= ConvBlock(in_channels=128, out_channels=1, kernel_size=3, padding=1, stride=1)
-        self.fc_critic = nn.Linear(np.prod((1,) + self.obs_shape), 1)
+        self.critic = nn.Sequential(
+            nn.Conv2d(in_channels=128, out_channels=1, kernel_size=3, padding=1, stride=1),
+            nn.Tanh(),
+            nn.Flatten(),
+            nn.Linear(np.prod((1,) + latent_shape[-2:]), 1)
+        )
 
-    def forward(self, x):
-        x = F.relu(self.critic(x))
-        x = self.fc_critic(self.reshape(x))
-        return x
+    def forward(self, inputs):
+        return self.critic(inputs)
 
 
 class Net(nn.Module):
@@ -190,58 +125,52 @@ class Net(nn.Module):
         super(Net, self).__init__()
 
         torch.set_default_dtype(torch.float32)
-        self.num_res_blocks = 6
-        self.obs_shape = obs_shape
-        self.downSampleLayer = (self.num_res_blocks // 2)
 
-        self.conv1 = ConvBlock(in_channels=self.obs_shape[-1], out_channels=256,
-                kernel_size=3, padding=1, stride=2)
-        for block in range(0, self.downSampleLayer):
-            setattr(self, f"res-block-{block+1}", ResBlock(in_channels=256,
-                out_channels=256, kernel_size=3, padding=1, stride=1))
+        self.shared = nn.Sequential(
+            nn.Conv2d(num_frames, 128, kernel_size=10, padding=1, stride=4),
+            nn.Tanh(),
+            nn.BatchNorm2d(128),
+            ResNet(nn.Sequential(
+                nn.Conv2d(128, 128, kernel_size=4, padding=2, stride=1),
+                nn.Tanh(),
+                nn.BatchNorm2d(128),
+                nn.Conv2d(128, 128, kernel_size=4, padding=1, stride=1),
+                nn.Tanh(),
+                nn.BatchNorm2d(128)
+            )),
+            nn.Conv2d(128, 128, kernel_size=4, padding=1, stride=2),
+            nn.Tanh(),
+            nn.BatchNorm2d(128),
+            ResNet(nn.Sequential(
+                nn.Conv2d(128, 128, kernel_size=4, padding=2, stride=1),
+                nn.Tanh(),
+                nn.BatchNorm2d(128),
+                nn.Conv2d(128, 128, kernel_size=4, padding=1, stride=1),
+                nn.Tanh(),
+                nn.BatchNorm2d(128)
+            )),
+        )
 
-        self.conv2 = ConvBlock(in_channels=256, out_channels=128,
-                kernel_size=3, padding=0, stride=3)
-        for block in range(self.downSampleLayer, self.num_res_blocks):
-            setattr(self, f"res-block-{block+1}", ResBlock(in_channels=128,
-                out_channels=128, kernel_size=3, padding=1, stride=1))
+        with torch.no_grad():
+            latent_shape = tuple(self.shared(torch.randn((8, num_frames) + obs_shape[:-1])).shape)
 
-        # change input dimensions for the Actor and Critic block
-        # as the original observation is downscaled by previous conv layers
-        # W_out = ((W_in + 2P - (F - 1) - 1) / S) + 1 (assuming dilation=1)
-        # Refer: https://pytorch.org/docs/1.9.1/generated/torch.nn.Conv3d.html
-        # TODO: make this dynamic
-        obs_shape = (num_frames, ) + self.obs_shape[:-1]
-        obs_shape = tuple(map(lambda x: (x + 2 - 2 - 1)//2 + 1, obs_shape)) # 1st conv - (3, 200, 300)
-        obs_shape = tuple(map(lambda x: (x + 0 - 2 - 1)//3 + 1, obs_shape)) # 2nd conv - (1, 66, 100)
-
-        self.actor = Actor(obs_shape, action_shape)
-        self.critic = Critic(obs_shape)
+        self.actor = Actor(latent_shape, action_shape)
+        self.critic = Critic(latent_shape)
         self._initialize_weights()
 
     def _initialize_weights(self):
         for m in self.modules():
-            if isinstance(m, nn.Conv3d):
+            if isinstance(m, nn.Conv2d):
                 nn.init.orthogonal_(m.weight)
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm3d):
+            elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
 
-    def _forward_base(self, obs: torch.Tensor):
-        obs = self.conv1(obs)
-        for block in range(0, self.downSampleLayer):
-            obs = getattr(self, f"res-block-{block+1}")(obs)
-
-        obs = self.conv2(obs)
-        for block in range(self.downSampleLayer, self.num_res_blocks):
-            obs = getattr(self, f"res-block-{block+1}")(obs)
-        return obs
-
-    def forward(self, obs: torch.Tensor):
-        obs = self._forward_base(obs)
-        policy = self.actor(obs)
-        value = self.critic(obs)
+    def forward(self, inputs: torch.Tensor):
+        inputs = self.shared(inputs)
+        policy = self.actor(inputs)
+        value = self.critic(inputs)
         return policy, value
