@@ -83,10 +83,12 @@ def make_env(id: int, quality='hd', race_config_args={}):
 
     import gym
     def _init() -> gym.Env:
-        from src.env import STKAgent, STKEnv, STKReward
+        from src.env import STKAgent, STKEnv, STKReward, SkipFrame, GrayScaleObservation
         env = STKAgent(STK.get_graphic_config(quality), STK.get_race_config(**race_config_args), id)
         env = STKEnv(env)
         env = STKReward(env)
+        env = SkipFrame(env, 2)
+        env = GrayScaleObservation(env)
         return env
     return _init
 

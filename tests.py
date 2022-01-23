@@ -11,7 +11,7 @@ def test_env():
     for _ in range(100):
         # action = env.action_space.sample()
         image, reward, _, info = env.step(action)
-        plt.imshow(image.astype(np.uint8))
+        plt.imshow(np.array(image).squeeze().astype(np.uint8), cmap='gray')
         plt.pause(0.1)
 
     env.close()
