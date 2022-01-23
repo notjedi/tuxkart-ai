@@ -84,8 +84,7 @@ class Actor(nn.Module):
 
     def forward(self, inputs):
         inputs = self.actor(inputs)
-        return inputs
-        # return self.dist.update_logits(logits=inputs)
+        return self.dist.update_logits(logits=inputs)
 
 
 class Critic(nn.Module):
