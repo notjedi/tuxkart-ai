@@ -68,7 +68,7 @@ class Logger():
         self.writer.add_scalar('eval/rewards', reward, self.eval_step)
         self.writer.add_scalar('eval/values', value.item(), self.eval_step)
         self.writer.add_scalar('eval/total_rewards', tot_reward, self.eval_step)
-        self.writer.add_image('eval/image', image, self.eval_step, dataformats='CWH')
+        self.writer.add_image('eval/image', image, self.eval_step, dataformats='WH')
         self.writer.flush()
         self.eval_step += 1
 
@@ -98,19 +98,18 @@ def get_encoder(obs_shape):
     import numpy as np
 
     num_info = 4
-    reversed_obs_shape = tuple(reversed(obs_shape))
     idx_array = np.array_split(np.arange(obs_shape[0]), num_info)
 
     def encode(infos):
-        info_image  = np.zeros((len(infos), ) + reversed_obs_shape, dtype=np.float32)
+        info_image  = np.zeros((len(infos), ) + obs_shape[:-1], dtype=np.float32)
 
         for i, info in enumerate(infos):
             if info is None:
                 continue
-            info_image[i, :, :, idx_array[0]] = info["nitro"]
-            info_image[i, :, :, idx_array[1]] = info["position"]
-            info_image[i, :, :, idx_array[2]] = info["powerup"].value # val of NOTHING = 0
-            info_image[i, :, :, idx_array[3]] = info["attachment"].value # val of NOTHING = 9
+            info_image[i, idx_array[0], :] = info["nitro"]
+            info_image[i, idx_array[1], :] = info["position"]
+            info_image[i, idx_array[2], :] = info["powerup"].value # val of NOTHING = 0
+            info_image[i, idx_array[3], :] = info["attachment"].value # val of NOTHING = 9
         return info_image
 
     return encode
