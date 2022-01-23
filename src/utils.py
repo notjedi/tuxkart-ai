@@ -19,8 +19,8 @@ class STK:
             "ld": pystk.GraphicsConfig.ld,
             "none": pystk.GraphicsConfig.none }
 
-    WIDTH = 400
-    HEIGHT = 200
+    WIDTH = 600
+    HEIGHT = 400
 
     @staticmethod
     def get_graphic_config(quality='hd'):

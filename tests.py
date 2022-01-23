@@ -24,13 +24,12 @@ def test_model():
     from torchinfo import summary
     from src.model import Net
 
-    OBS_DIM = (400, 200, 3)
+    OBS_DIM = (600, 400, 3)
     ACT_DIM = (2, 2, 3, 2, 2, 2)
-    DEVICE, BATCH_SIZE, NUM_FRAMES = 'cuda', 4, 5
+    DEVICE, BATCH_SIZE, NUM_FRAMES = 'cuda', 8, 5
 
-    rand_input = torch.randint(0, 255, (BATCH_SIZE, OBS_DIM[-1], NUM_FRAMES, *OBS_DIM[:-1]),
+    rand_input = torch.randint(0, 255, (BATCH_SIZE, NUM_FRAMES, *OBS_DIM[:-1]),
             device=DEVICE, dtype=torch.float32)
-    print(rand_input.shape)
     model = Net(OBS_DIM, ACT_DIM, NUM_FRAMES)
     model.to(DEVICE)
 
