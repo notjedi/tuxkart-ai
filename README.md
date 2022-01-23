@@ -1,101 +1,66 @@
 # tuxkart-ai
 
+
 ### TODO:
 
-- [ ] change all dtypes to float16 or int8
-- [ ] not satisfied with the reward function change it
-- [ ] consider FPS
+- [ ] keep a moving finish line?
+- [ ] use stackedvec - stable_baselines_3
+- [ ] train VAE on RGB images instead of using grayscale image as model input
+- [ ] RNN instead of using frames?
+- [ ] various research papers such as img augmentation, curl, etc - check phone
+- [ ] another regularization step (maybe) would be to take `x` number of actions randomly, like not
+      sample from the dist but totally random steps and have the model recover from that - so as to see
+      how the model recovers from that state?
 
-instead of creating a mini-batch i'm using vectorized envs and i sample from them
+
+### Model arch:
 
 ```
 ==========================================================================================
 Layer (type:depth-idx)                   Output Shape              Param #
 ==========================================================================================
 Net                                      --                        --
-├─ConvBlock: 1-1                         [1, 256, 3, 200, 300]     --
-│    └─Conv3d: 2-1                       [1, 256, 3, 200, 300]     20,992
-│    └─BatchNorm3d: 2-2                  [1, 256, 3, 200, 300]     512
-├─ResBlock: 1-2                          [1, 256, 3, 200, 300]     --
-│    └─Conv3d: 2-3                       [1, 256, 3, 200, 300]     1,769,472
-│    └─BatchNorm3d: 2-4                  [1, 256, 3, 200, 300]     512
-│    └─Conv3d: 2-5                       [1, 256, 3, 200, 300]     1,769,472
-│    └─BatchNorm3d: 2-6                  [1, 256, 3, 200, 300]     512
-├─ResBlock: 1-3                          [1, 256, 3, 200, 300]     --
-│    └─Conv3d: 2-7                       [1, 256, 3, 200, 300]     1,769,472
-│    └─BatchNorm3d: 2-8                  [1, 256, 3, 200, 300]     512
-│    └─Conv3d: 2-9                       [1, 256, 3, 200, 300]     1,769,472
-│    └─BatchNorm3d: 2-10                 [1, 256, 3, 200, 300]     512
-├─ResBlock: 1-4                          [1, 256, 3, 200, 300]     --
-│    └─Conv3d: 2-11                      [1, 256, 3, 200, 300]     1,769,472
-│    └─BatchNorm3d: 2-12                 [1, 256, 3, 200, 300]     512
-│    └─Conv3d: 2-13                      [1, 256, 3, 200, 300]     1,769,472
-│    └─BatchNorm3d: 2-14                 [1, 256, 3, 200, 300]     512
-├─ResBlock: 1-5                          [1, 256, 3, 200, 300]     --
-│    └─Conv3d: 2-15                      [1, 256, 3, 200, 300]     1,769,472
-│    └─BatchNorm3d: 2-16                 [1, 256, 3, 200, 300]     512
-│    └─Conv3d: 2-17                      [1, 256, 3, 200, 300]     1,769,472
-│    └─BatchNorm3d: 2-18                 [1, 256, 3, 200, 300]     512
-├─ResBlock: 1-6                          [1, 256, 3, 200, 300]     --
-│    └─Conv3d: 2-19                      [1, 256, 3, 200, 300]     1,769,472
-│    └─BatchNorm3d: 2-20                 [1, 256, 3, 200, 300]     512
-│    └─Conv3d: 2-21                      [1, 256, 3, 200, 300]     1,769,472
-│    └─BatchNorm3d: 2-22                 [1, 256, 3, 200, 300]     512
-├─ConvBlock: 1-7                         [1, 256, 1, 66, 100]      --
-│    └─Conv3d: 2-23                      [1, 256, 1, 66, 100]      1,769,728
-│    └─BatchNorm3d: 2-24                 [1, 256, 1, 66, 100]      512
-├─ResBlock: 1-8                          [1, 256, 1, 66, 100]      --
-│    └─Conv3d: 2-25                      [1, 256, 1, 66, 100]      1,769,472
-│    └─BatchNorm3d: 2-26                 [1, 256, 1, 66, 100]      512
-│    └─Conv3d: 2-27                      [1, 256, 1, 66, 100]      1,769,472
-│    └─BatchNorm3d: 2-28                 [1, 256, 1, 66, 100]      512
-├─ResBlock: 1-9                          [1, 256, 1, 66, 100]      --
-│    └─Conv3d: 2-29                      [1, 256, 1, 66, 100]      1,769,472
-│    └─BatchNorm3d: 2-30                 [1, 256, 1, 66, 100]      512
-│    └─Conv3d: 2-31                      [1, 256, 1, 66, 100]      1,769,472
-│    └─BatchNorm3d: 2-32                 [1, 256, 1, 66, 100]      512
-├─ResBlock: 1-10                         [1, 256, 1, 66, 100]      --
-│    └─Conv3d: 2-33                      [1, 256, 1, 66, 100]      1,769,472
-│    └─BatchNorm3d: 2-34                 [1, 256, 1, 66, 100]      512
-│    └─Conv3d: 2-35                      [1, 256, 1, 66, 100]      1,769,472
-│    └─BatchNorm3d: 2-36                 [1, 256, 1, 66, 100]      512
-├─ResBlock: 1-11                         [1, 256, 1, 66, 100]      --
-│    └─Conv3d: 2-37                      [1, 256, 1, 66, 100]      1,769,472
-│    └─BatchNorm3d: 2-38                 [1, 256, 1, 66, 100]      512
-│    └─Conv3d: 2-39                      [1, 256, 1, 66, 100]      1,769,472
-│    └─BatchNorm3d: 2-40                 [1, 256, 1, 66, 100]      512
-├─ResBlock: 1-12                         [1, 256, 1, 66, 100]      --
-│    └─Conv3d: 2-41                      [1, 256, 1, 66, 100]      1,769,472
-│    └─BatchNorm3d: 2-42                 [1, 256, 1, 66, 100]      512
-│    └─Conv3d: 2-43                      [1, 256, 1, 66, 100]      1,769,472
-│    └─BatchNorm3d: 2-44                 [1, 256, 1, 66, 100]      512
-├─Actor: 1-13                            [1, 15]                   --
-│    └─ConvBlock: 2-45                   [1, 64, 1, 66, 100]       --
-│    │    └─Conv3d: 3-1                  [1, 64, 1, 66, 100]       442,432
-│    │    └─BatchNorm3d: 3-2             [1, 64, 1, 66, 100]       128
-│    └─ConvBlock: 2-46                   [1, 1, 1, 66, 100]        --
-│    │    └─Conv3d: 3-3                  [1, 1, 1, 66, 100]        1,729
-│    │    └─BatchNorm3d: 3-4             [1, 1, 1, 66, 100]        2
-│    └─FCView: 2-47                      [1, 6600]                 --
-│    └─Linear: 2-48                      [1, 15]                   99,015
-├─Critic: 1-14                           [1, 1]                    --
-│    └─ConvBlock: 2-49                   [1, 1, 1, 66, 100]        --
-│    │    └─Conv3d: 3-5                  [1, 1, 1, 66, 100]        6,913
-│    │    └─BatchNorm3d: 3-6             [1, 1, 1, 66, 100]        2
-│    └─FCView: 2-50                      [1, 6600]                 --
-│    └─Linear: 2-51                      [1, 1]                    6,601
+├─Sequential: 1-1                        [8, 128, 74, 49]          --
+│    └─Conv2d: 2-1                       [8, 128, 149, 99]         64,128
+│    └─Tanh: 2-2                         [8, 128, 149, 99]         --
+│    └─BatchNorm2d: 2-3                  [8, 128, 149, 99]         256
+│    └─ResNet: 2-4                       [8, 128, 149, 99]         --
+│    │    └─Sequential: 3-1              [8, 128, 149, 99]         525,056
+│    └─Conv2d: 2-5                       [8, 128, 74, 49]          262,272
+│    └─Tanh: 2-6                         [8, 128, 74, 49]          --
+│    └─BatchNorm2d: 2-7                  [8, 128, 74, 49]          256
+│    └─ResNet: 2-8                       [8, 128, 74, 49]          --
+│    │    └─Sequential: 3-2              [8, 128, 74, 49]          525,056
+├─Actor: 1-2                             [8, 13]                   --
+│    └─Sequential: 2-9                   [8, 13]                   --
+│    │    └─Conv2d: 3-3                  [8, 1, 74, 49]            1,153
+│    │    └─Tanh: 3-4                    [8, 1, 74, 49]            --
+│    │    └─Flatten: 3-5                 [8, 3626]                 --
+│    │    └─Linear: 3-6                  [8, 13]                   47,151
+├─Critic: 1-3                            [8, 1]                    --
+│    └─Sequential: 2-10                  [8, 1]                    --
+│    │    └─Conv2d: 3-7                  [8, 1, 74, 49]            1,153
+│    │    └─Tanh: 3-8                    [8, 1, 74, 49]            --
+│    │    └─Flatten: 3-9                 [8, 3626]                 --
+│    │    └─Linear: 3-10                 [8, 1]                    3,627
 ==========================================================================================
-Total params: 37,748,246
-Trainable params: 37,748,246
+Total params: 1,430,108
+Trainable params: 1,430,108
 Non-trainable params: 0
-Total mult-adds (T): 3.32
+Total mult-adds (G): 93.14
 ==========================================================================================
-Input size (MB): 14.40
-Forward/backward pass size (MB): 8414.42
-Params size (MB): 150.99
-Estimated Total Size (MB): 8579.81
+Input size (MB): 38.40
+Forward/backward pass size (MB): 909.84
+Params size (MB): 5.72
+Estimated Total Size (MB): 953.96
 ==========================================================================================
 ```
+
+Observations:
+
+* Half Precision doesn't work
+* Training on RGB image absolutely does nothing
+
 
 ### References
 
@@ -105,3 +70,15 @@ Estimated Total Size (MB): 8579.81
 - https://youtu.be/WxQfQW48A4A
 - https://youtu.be/5P7I-xPq8u8
 - https://github.com/colinskow/move37/blob/master/ppo/ppo_train.py
+- https://github.com/higgsfield/RL-Adventure-2/blob/master/3.ppo.ipynb
+- https://math.stackexchange.com/questions/1905533/find-perpendicular-distance-from-point-to-line-in-3d
+- https://onlinemschool.com/math/library/analytic_geometry/p_line/
+- https://mathworld.wolfram.com/Point-LineDistance3-Dimensional.html
+- https://github.com/philkr/pystk/blob/master/pystk_cpp/state.cpp
+- https://deeplearning.lipingyang.org/2016/12/29/model-free-vs-model-based-methods/
+- https://youtu.be/V8f8ueBc9sY
+- https://cs.stackexchange.com/questions/70518/why-do-we-use-the-log-in-gradient-based-reinforcement-algorithms
+- https://ai.stackexchange.com/questions/7685/why-is-the-log-probability-replaced-with-the-importance-sampling-in-the-loss-fun
+- https://costa.sh/blog-understanding-why-there-isn't-a-log-probability-in-trpo-and-ppo's-objective.html
+- https://www.reddit.com/r/reinforcementlearning/comments/s18hjr/help_understanding_ppo_algorithm/
+- https://github.com/dalmia/David-Silver-Reinforcement-learning
