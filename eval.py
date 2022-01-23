@@ -16,8 +16,8 @@ def eval(env, model, logger, args, log=False, render=False):
 
     assert env.num_envs == 1, 'eval is only supported for num_envs = 1'
     prevInfo = [None for _ in range(env.num_envs)]
-    images = env.get_images()
-    images = deque([np.zeros_like(images) for _ in range(args.num_frames)], maxlen=args.num_frames)
+    images = env.reset()
+    images = deque([np.array(images) for _ in range(args.num_frames)], maxlen=args.num_frames)
     to_numpy = lambda x: x.to(device='cpu').numpy()
     encoder = get_encoder(env.observation_space.shape)
     tot_reward = 0
@@ -25,17 +25,17 @@ def eval(env, model, logger, args, log=False, render=False):
     with torch.no_grad():
         t = tqdm(range(args.eval_steps))
         for i in t:
-            images.append(np.array(env.get_images()))
             encoded_infos = encoder(prevInfo)
             images[0] = encoded_infos
-            obs = torch.from_numpy(np.transpose(np.array(images), (1, 2, 0, 3, 4))).to(args.device)
+            obs = torch.from_numpy(np.transpose(np.array(images), (1, 0, 2, 3))).to(args.device)
 
             dist, value = model(obs)
             action = to_numpy(dist.mode())
-            _, reward, done, info = env.step(action)
+            obs, reward, done, info = env.step(action)
             sum_reward = reward.sum()
             tot_reward += sum_reward
             prevInfo = info
+            images.append(obs)
             t.set_description(f"rewards: {sum_reward}")
 
             if log:
