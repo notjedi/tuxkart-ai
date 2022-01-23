@@ -27,7 +27,7 @@ class PPOBuffer:
     def reset(self):
         # an optimization would be to store the dict instead of the array
         self.infos = []
-        self.obs = np.zeros((self.buffer_size, self.batch_size, *reversed(self.obs_dim)), dtype=np.float32)
+        self.obs = np.zeros((self.buffer_size, self.batch_size, *self.obs_dim[:-1]), dtype=np.float32)
         self.actions = np.zeros((self.buffer_size, self.batch_size, len(self.act_dim)), dtype=np.float32)
         self.rewards = np.zeros((self.buffer_size, self.batch_size), dtype=np.float32)
         self.returns = np.zeros((self.buffer_size, self.batch_size), dtype=np.float32)
@@ -111,25 +111,25 @@ class PPO():
     def rollout(self):
 
         prevInfo = [None for _ in range(self.env.num_envs)]
-        images = self.env.get_images()
-        images = deque([np.zeros_like(images) for _ in range(self.num_frames)], maxlen=self.num_frames)
+        images = self.env.reset()
+        images = deque([np.array(images) for _ in range(self.num_frames)], maxlen=self.num_frames)
         to_numpy = lambda x: x.to(device='cpu').numpy()
 
         with torch.no_grad():
             for i in trange(self.buffer_size):
 
-                images.append(np.array(self.env.get_images()))
                 encoded_infos = self.info_encoder(prevInfo)
                 images[0] = encoded_infos # basically appending left without popping off the last element from the other side
-                obs = torch.from_numpy(np.transpose(np.array(images), (1, 2, 0, 3, 4))).to(self.device)
+                obs = torch.from_numpy(np.transpose(np.array(images), (1, 0, 2, 3))).to(self.device)
 
                 dist, value = self.model(obs)
                 action = dist.sample()
                 log_prob = dist.log_prob(action)
-                _, reward, done, info = self.env.step(to_numpy(action))
+                obs, reward, done, info = self.env.step(to_numpy(action))
                 self.buffer.save(images[-1], to_numpy(action), reward,
                         to_numpy(value.squeeze(dim=-1)), prevInfo, to_numpy(log_prob))
                 prevInfo = info
+                images.append(obs)
 
                 if done.any():
                     break
@@ -148,10 +148,9 @@ class PPO():
                 print()
             print('-------------------------------------------------------------\n')
 
-            images.append(np.array(self.env.get_images()))
             encoded_infos = self.info_encoder(prevInfo)
             images[0] = encoded_infos
-            obs = torch.from_numpy(np.transpose(np.array(images), (1, 2, 0, 3, 4))).to(self.device)
+            obs = torch.from_numpy(np.transpose(np.array(images), (1, 0, 2, 3))).to(self.device)
             _, next_value = self.model(obs)
             self.buffer.compute_gae(to_numpy(next_value.squeeze(dim=1)))
 
@@ -170,7 +169,7 @@ class PPO():
                 self.opt.zero_grad()
                 obs, act, info, returns, logp_old, adv = map(to_cuda, self.buffer.get())
                 obs = torch.cat((to_cuda(self.info_encoder(info)).unsqueeze(dim=0), obs), dim=0)
-                dist, value_new = self.model(obs.permute(1, 2, 0, 3, 4)) # transpose axes because it is originally in shape (D, N, C, H, W)
+                dist, value_new = self.model(obs.permute(1, 0, 2, 3)) # transpose axes because it is originally in shape (D, N, H, W)
                 logp_new = dist.log_prob(act)
 
                 ratio = (logp_new - logp_old).exp()
