@@ -1,9 +1,11 @@
+import gym
+import torch
 import pystk
 import numpy as np
 
 from random import choice
-from gym import Env, Wrapper
 from sympy import Point3D, Line3D
+from torchvision import transforms as T
 from gym.spaces import Box, MultiDiscrete
 
 
@@ -145,7 +147,7 @@ class STKAgent():
         if not self.started:
             self.race.start()
             self._update_action([1, 0, 1, 0, 0, 0, 0])
-            for _ in range(50):
+            for _ in range(30):
                 self.race.step(self.currentAction)
                 self.state.update()
                 self.track.update()
@@ -176,7 +178,7 @@ class STKAgent():
         del self.race
         pystk.clean()
 
-class STKEnv(Env):
+class STKEnv(gym.Env):
     """
     A simple gym compatible STK environment for controlling the kart and interacting with the
     environment. The goal is to place 1st among other karts.
@@ -220,8 +222,6 @@ class STKEnv(Env):
         return self.env.reset()
 
     def render(self, mode: str = 'human'):
-        if mode == 'rgb_array':
-            return np.transpose(self.env.image, (2, 1, 0))
         return self.env.image
 
     def get_env_info(self):
@@ -230,7 +230,7 @@ class STKEnv(Env):
     def close(self):
         self.env.close()
 
-class STKReward(Wrapper):
+class STKReward(gym.Wrapper):
 
     FINISH          = 30
     POSITION        = 5
@@ -333,3 +333,37 @@ class STKReward(Wrapper):
             done = True
             print(f'env_id: {self.env.env.id} - {info.get("early_end_reason", "None")}')
         return state, reward, done, info
+
+
+class GrayScaleObservation(gym.ObservationWrapper):
+
+    def __init__(self, env):
+        super().__init__(env)
+        self.transform = T.Grayscale()
+
+    def permute_orientation(self, observation):
+        # permute [H, W, C] array to [C, H, W] tensor
+        observation = np.transpose(observation, (2, 0, 1))
+        return torch.from_numpy(observation)
+
+    def observation(self, obs):
+        return self.transform(self.permute_orientation(obs))
+
+
+class SkipFrame(gym.Wrapper):
+
+    def __init__(self, env, skip):
+        """Return only every `skip`-th frame"""
+        super().__init__(env)
+        self._skip = skip
+
+    def step(self, action):
+        """Repeat action, and sum reward"""
+        total_reward = 0.0
+        for i in range(self._skip):
+            # Accumulate reward and repeat the same action
+            obs, reward, done, info = self.env.step(action)
+            total_reward += reward
+            if done:
+                break
+        return obs, total_reward, done, info
