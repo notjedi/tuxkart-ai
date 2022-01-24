@@ -240,6 +240,7 @@ class STKReward(gym.Wrapper):
     VELOCITY        = 3
     USE_POWERUP     = 2
     JUMP            = -3
+    BACKWARDS       = -10
     OUT_OF_TRACK    = -10
     EARLY_END       = -20
 
