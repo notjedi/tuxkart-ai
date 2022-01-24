@@ -1,6 +1,7 @@
 import torch
 
 from torch import nn
+from torch.nn.fucntional import F
 
 
 class ConvVAE(nn.Module):
@@ -89,4 +90,4 @@ class Decoder(nn.Module):
 
     def forward(self, x):
         x = self.fc1(x).view(-1, *self.latent_shape)
-        return self.decoder(x)
+        return F.sigmoid(self.decoder(x))

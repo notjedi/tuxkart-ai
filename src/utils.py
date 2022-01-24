@@ -30,7 +30,8 @@ class STK:
         return config
 
     @staticmethod
-    def get_race_config(track=None, kart=None, numKarts=5, laps=1, reverse=False, difficulty=1):
+    def get_race_config(track=None, kart=None, numKarts=5, laps=1, reverse=False, difficulty=1,
+            vae=False):
         if track is None:
             track = choice(STK.TRACKS)
         if kart is None:
@@ -45,7 +46,8 @@ class STK:
         config.laps = laps
         config.players[0].team = 0
         config.players[0].kart = kart
-        config.players[0].controller = pystk.PlayerConfig.Controller.PLAYER_CONTROL
+        config.players[0].controller = if vae pystk.PlayerConfig.Controller.AI_CONTROL else
+            pystk.PlayerConfig.Controller.PLAYER_CONTROL
         return config
 
 
@@ -55,6 +57,8 @@ class Logger():
         self.writer = writer
         self.train_step = 0
         self.eval_step = 0
+        self.vae_train_step = 0
+        self.vae_eval_step = 0
 
     def log_train(self, step, actor_loss, critic_loss, entropy_loss, loss):
         self.writer.add_scalar("train/entropy_loss", entropy_loss.item(), self.train_step)
