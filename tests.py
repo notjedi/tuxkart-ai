@@ -71,7 +71,28 @@ def test_ppo():
     print("src/ppo.py test successful")
 
 
+def test_vae_model():
+
+    import torch
+    from torchinfo import summary
+    from src.vae.model import ConvVAE, Encoder, Decoder
+
+    OBS_DIM = (600, 400, 1)
+    DEVICE, BATCH_SIZE = 'cuda', 8
+
+    rand_input = torch.randint(0, 255, (BATCH_SIZE, OBS_DIM[-1], *OBS_DIM[:-1]),
+            device=DEVICE, dtype=torch.float32)
+    vae = ConvVAE(OBS_DIM, Encoder, Decoder, 128)
+    vae.to(DEVICE)
+
+    # summary(vae, input_data=rand_input, verbose=1)
+    recons_image_sto = vae(rand_input)
+    recons_image_det = vae(rand_input, mean=True)
+    print("src/vae/model.py test successful")
+
+
 if __name__ == "__main__":
-    test_env()
-    test_model()
-    test_ppo()
+    # test_env()
+    # test_model()
+    # test_ppo()
+    test_vae_model()
