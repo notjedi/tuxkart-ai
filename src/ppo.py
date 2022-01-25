@@ -186,4 +186,5 @@ class PPO():
 
                 step = epoch * timestep
                 t.set_description(f"loss: {loss}")
-                self.logger.log_train(step, actor_loss, critic_loss, entropy_loss, loss)
+                self.logger.log_train(step, actor_loss.item(), critic_loss.item(),
+                        entropy_loss.item(), loss.item())

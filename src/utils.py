@@ -60,18 +60,17 @@ class Logger():
         self.vae_train_step = 0
         self.vae_eval_step = 0
 
-    # TODO: use item() while calling method
     def log_train(self, step, actor_loss, critic_loss, entropy_loss, loss):
-        self.writer.add_scalar("train/entropy_loss", entropy_loss.item(), self.train_step)
-        self.writer.add_scalar("train/policy_loss", actor_loss.item(), self.train_step)
-        self.writer.add_scalar("train/value_loss", critic_loss.item(), self.train_step)
-        self.writer.add_scalar("train/loss", loss.item(), self.train_step)
+        self.writer.add_scalar("train/entropy_loss", entropy_loss, self.train_step)
+        self.writer.add_scalar("train/policy_loss", actor_loss, self.train_step)
+        self.writer.add_scalar("train/value_loss", critic_loss, self.train_step)
+        self.writer.add_scalar("train/loss", loss, self.train_step)
         self.writer.flush()
         self.train_step += 1
 
     def log_eval(self, reward, value, tot_reward, image):
         self.writer.add_scalar('eval/rewards', reward, self.eval_step)
-        self.writer.add_scalar('eval/values', value.item(), self.eval_step)
+        self.writer.add_scalar('eval/values', value, self.eval_step)
         self.writer.add_scalar('eval/total_rewards', tot_reward, self.eval_step)
         self.writer.add_image('eval/image', image, self.eval_step, dataformats='WH')
         self.writer.flush()

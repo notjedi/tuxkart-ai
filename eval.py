@@ -39,7 +39,7 @@ def eval(env, model, logger, args, log=False, render=False):
             t.set_description(f"rewards: {sum_reward}")
 
             if log:
-                logger.log_eval(sum_reward, value, tot_reward, images[-1].squeeze())
+                logger.log_eval(sum_reward, value.item(), tot_reward, images[-1].squeeze())
 
             if render:
                 image = np.array(env.env_method('render')).squeeze()
