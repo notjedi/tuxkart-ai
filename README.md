@@ -56,6 +56,50 @@ Estimated Total Size (MB): 953.96
 ==========================================================================================
 ```
 
+### VAE model arch
+
+```
+==========================================================================================
+Layer (type:depth-idx)                   Output Shape              Param #
+==========================================================================================
+ConvVAE                                  --                        --
+├─Encoder: 1-1                           [8, 128]                  --
+│    └─Sequential: 2-1                   [8, 1, 75, 50]            --
+│    │    └─Conv2d: 3-1                  [8, 128, 149, 99]         12,800
+│    │    └─ReLU: 3-2                    [8, 128, 149, 99]         --
+│    │    └─BatchNorm2d: 3-3             [8, 128, 149, 99]         256
+│    │    └─Conv2d: 3-4                  [8, 256, 150, 100]        524,288
+│    │    └─ReLU: 3-5                    [8, 256, 150, 100]        --
+│    │    └─BatchNorm2d: 3-6             [8, 256, 150, 100]        512
+│    │    └─Conv2d: 3-7                  [8, 128, 149, 99]         524,288
+│    │    └─ReLU: 3-8                    [8, 128, 149, 99]         --
+│    │    └─BatchNorm2d: 3-9             [8, 128, 149, 99]         256
+│    │    └─Conv2d: 3-10                 [8, 1, 75, 50]            1,152
+│    └─Linear: 2-2                       [8, 128]                  480,128
+│    └─Linear: 2-3                       [8, 128]                  480,128
+├─Decoder: 1-2                           [8, 1, 600, 400]          --
+│    └─Linear: 2-4                       [8, 3750]                 483,750
+│    └─Sequential: 2-5                   [8, 1, 600, 400]          --
+│    │    └─ConvTranspose2d: 3-11        [8, 128, 149, 99]         1,280
+│    │    └─ReLU: 3-12                   [8, 128, 149, 99]         --
+│    │    └─ConvTranspose2d: 3-13        [8, 256, 149, 99]         295,168
+│    │    └─ReLU: 3-14                   [8, 256, 149, 99]         --
+│    │    └─ConvTranspose2d: 3-15        [8, 128, 296, 196]        524,416
+│    │    └─ReLU: 3-16                   [8, 128, 296, 196]        --
+│    │    └─ConvTranspose2d: 3-17        [8, 1, 600, 400]          12,801
+==========================================================================================
+Total params: 3,341,223
+Trainable params: 3,341,223
+Non-trainable params: 0
+Total mult-adds (G): 429.30
+==========================================================================================
+Input size (MB): 7.68
+Forward/backward pass size (MB): 1828.52
+Params size (MB): 13.36
+Estimated Total Size (MB): 1849.57
+==========================================================================================
+```
+
 Observations:
 
 * Half Precision doesn't work
@@ -82,3 +126,8 @@ Observations:
 - https://costa.sh/blog-understanding-why-there-isn't-a-log-probability-in-trpo-and-ppo's-objective.html
 - https://www.reddit.com/r/reinforcementlearning/comments/s18hjr/help_understanding_ppo_algorithm/
 - https://github.com/dalmia/David-Silver-Reinforcement-learning
+
+
+- https://stats.stackexchange.com/questions/394582/why-is-binary-cross-entropy-or-log-loss-used-in-autoencoders-for-non-binary-da
+- https://stats.stackexchange.com/questions/370179/why-binary-crossentropy-can-be-used-as-the-loss-function-in-autoencoders
+- https://stackoverflow.com/questions/52441877/how-does-binary-cross-entropy-loss-work-on-autoencoders/52443301#52443301

@@ -92,7 +92,7 @@ def test_vae_model():
 
 
 if __name__ == "__main__":
-    # test_env()
-    # test_model()
-    # test_ppo()
+    test_env()
+    test_model()
+    test_ppo()
     test_vae_model()
