@@ -31,10 +31,8 @@ def main(args):
 
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
-    try:
+    if not os.path.isdir(args.save_dir):
         os.makedirs(args.save_dir)
-    except FileExistsError:
-        print(f"{args.save_dir} already exists")
 
     env = make_env(id)()
     obs_shape, act_shape = env.observation_space.shape, env.action_space.nvec
