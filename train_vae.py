@@ -18,22 +18,23 @@ def preprocess_grayscale_images(images):
 
 
 def collect_data(num_envs, per_env_sample):
-    # TODO: only sample at random steps
-    # TODO: use np array instead of list?
-    data = []
-    acts = np.array([None for _ in range(num_envs)])
+    acts, step = np.array([None for _ in range(num_envs)]), 0
     env = SubprocVecEnv([make_env(i, 'hd', { 'difficulty': 3, 'reverse': np.random.choice([True, False]),
         'vae': True }) for i in range(num_envs)], start_method='spawn')
     obs_shape = env.observation_space.shape
+    data = np.empty((per_env_sample, num_envs) + obs_shape, dtype=np.float32)
 
-    for _ in trange(per_env_sample):
+    with tqdm(total=per_env_sample, position=1, leave=False) as pbar:
         obs, _, done, _ = env.step(acts)
-        data.append(np.array(obs))
+        if np.random.rand() < 0.6:
+            data[step] = np.array(obs)
+            pbar.update(1)
+            step += 1
         if done.any():
             break
 
     env.close()
-    return np.array(data, dtype=np.float32).reshape(-1, 1, *obs_shape)
+    return data.reshape(-1, 1, *obs_shape)
 
 
 @torch.no_grad()
@@ -79,7 +80,7 @@ def main(args):
     min_loss = 1e6
     stop_counter = 0
 
-    while True:
+    with tqdm(total=1e5, position=0)
         train_data = torch.from_numpy(collect_data(args.num_envs, args.per_env_sample))
         train_data = preprocess_grayscale_images(train_data)
         data_len = len(train_data)
@@ -88,8 +89,8 @@ def main(args):
         mini_batch_size = min(args.mini_batch_size, data_len)
         epoch_size = 1 if mini_batch_size == data_len else data_len
 
-        for _ in trange(args.epoch):
-            t = tqdm((range(epoch_size)))
+        for _ in tqdm(range(args.epoch), position=2, leave=False):
+            t = tqdm((range(epoch_size)), position=3, leave=False)
             for _ in t:
 
                 optim.zero_grad()
