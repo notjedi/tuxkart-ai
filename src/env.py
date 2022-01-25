@@ -165,11 +165,6 @@ class STKAgent():
         return self.image
 
     def step(self, action = None):
-        # TODO: remove this and reset while initing env, change files accordingly
-        if not self.started:
-            self.reset()
-            self.started = True
-
         if self.AI:
             self.race.step()
             info = None
