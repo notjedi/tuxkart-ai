@@ -148,20 +148,23 @@ class STKAgent():
         return self.playerKart.finish_time > 0
 
     def reset(self):
-        if not self.started:
-            self.race.start()
-            self._update_action([1, 0, 1, 0, 0, 0, 0])
-            for _ in range(20):
-                self.race.step(self.currentAction)
-                self.state.update()
-                self.track.update()
-                self.image = np.array(self.race.render_data[0].image, dtype=np.float32)
-            # compute only if it's player controlled
+        if self.started:
+            return self.image
+
+        self.race.start()
+        self.started = True
+        self._update_action([1, 0, 1, 0, 0, 0, 0])
+        for _ in range(10):
+            self.race.step(self.currentAction)
+            self.state.update()
+            self.track.update()
+            self.image = np.array(self.race.render_data[0].image, dtype=np.float32)
+
+        self.playerKart = self.state.players[0].kart
+        if not self.AI:
             self.path_width = np.array(self.track.path_width)
             self.path_distance = np.array(self.track.path_distance)
             self.path_nodes = np.array(self._compute_lines(self.track.path_nodes))
-            self.playerKart = self.state.players[0].kart
-        self.started = True
         return self.image
 
     def step(self, action = None):
