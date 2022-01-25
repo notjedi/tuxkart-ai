@@ -1,7 +1,7 @@
 import torch
 
 from torch import nn
-from torch.nn.fucntional import F
+from torch.nn import functional as F
 
 
 class ConvVAE(nn.Module):
@@ -47,12 +47,12 @@ class ConvVAE(nn.Module):
         for module in self.modules():
             if isinstance(module, (nn.Conv2d, nn.Linear)):
                 nn.init.xavier_uniform_(module.weight)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0)
             elif isinstance(module, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
+                nn.init.constant_(module.weight, 1)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0)
 
 
 class Encoder(nn.Module):
@@ -106,4 +106,4 @@ class Decoder(nn.Module):
 
     def forward(self, x):
         x = self.fc1(x).view(-1, *self.latent_shape)
-        return F.sigmoid(self.decoder(x))
+        return torch.sigmoid(self.decoder(x))
