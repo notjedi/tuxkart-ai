@@ -7,6 +7,7 @@ from torch.nn.fucntional import F
 class ConvVAE(nn.Module):
     """
     https://dylandjian.github.io/world-models/
+    https://github.com/pytorch/examples/blob/master/vae/main.py
 
     :param build_encoder:
     :param build_decoder:
@@ -17,6 +18,7 @@ class ConvVAE(nn.Module):
         self.encoder = encoder_class(obs_shape, zdim)
         self.decoder = decoder_class(zdim, self.encoder.latent_shape, obs_shape)
         assert torch.all(torch.tensor(obs_shape) == self.decoder.recons_shape)
+        self._init_weights()
 
     def sample(self, image):
         mu, logvar = self.encoder(image)
@@ -39,7 +41,18 @@ class ConvVAE(nn.Module):
         if mean:
             return mu
         latent_repr = self.reparameterize(mu, logvar)
-        return self.decoder(latent_repr)
+        return self.decoder(latent_repr), mu, logvar
+
+    def _init_weights(self):
+        for module in self.modules():
+            if isinstance(module, (nn.Conv2d, nn.Linear)):
+                nn.init.xavier_uniform_(module.weight)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(module, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
 
 
 class Encoder(nn.Module):
@@ -47,13 +60,16 @@ class Encoder(nn.Module):
     def __init__(self, obs_shape, zdim):
         super(Encoder, self).__init__()
         self.encoder = nn.Sequential(
-                nn.Conv2d(obs_shape[-1], 128, kernel_size=10, padding=1, stride=4),
+                nn.Conv2d(obs_shape[-1], 128, kernel_size=10, padding=1, stride=4, bias=False),
                 nn.ReLU(),
-                nn.Conv2d(128, 256, kernel_size=4, padding=2, stride=1),
+                nn.BatchNorm2d(128),
+                nn.Conv2d(128, 256, kernel_size=4, padding=2, stride=1, bias=False),
                 nn.ReLU(),
-                nn.Conv2d(256, 128, kernel_size=4, padding=1, stride=1),
+                nn.BatchNorm2d(256),
+                nn.Conv2d(256, 128, kernel_size=4, padding=1, stride=1, bias=False),
                 nn.ReLU(),
-                nn.Conv2d(128, 1, kernel_size=3, padding=1, stride=2)
+                nn.BatchNorm2d(128),
+                nn.Conv2d(128, 1, kernel_size=3, padding=1, stride=2, bias=False)
             )
 
         with torch.no_grad():
