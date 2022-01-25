@@ -46,7 +46,7 @@ class STK:
         config.laps = laps
         config.players[0].team = 0
         config.players[0].kart = kart
-        config.players[0].controller = if vae pystk.PlayerConfig.Controller.AI_CONTROL else
+        config.players[0].controller = pystk.PlayerConfig.Controller.AI_CONTROL if vae else \
             pystk.PlayerConfig.Controller.PLAYER_CONTROL
         return config
 
@@ -60,6 +60,7 @@ class Logger():
         self.vae_train_step = 0
         self.vae_eval_step = 0
 
+    # TODO: use item() while calling method
     def log_train(self, step, actor_loss, critic_loss, entropy_loss, loss):
         self.writer.add_scalar("train/entropy_loss", entropy_loss.item(), self.train_step)
         self.writer.add_scalar("train/policy_loss", actor_loss.item(), self.train_step)
@@ -75,6 +76,17 @@ class Logger():
         self.writer.add_image('eval/image', image, self.eval_step, dataformats='WH')
         self.writer.flush()
         self.eval_step += 1
+
+    def log_vae_train(self, recon_loss, kl_loss, tot_loss):
+        self.writer.add_scalar('train_vae/loss', recon_loss)
+        self.writer.add_scalar('train_vae/kl_loss', kl_loss)
+        self.writer.add_scalar('train_vae/tot_loss', tot_loss)
+
+    def log_vae_eval(self, recon_loss, kl_loss, tot_loss):
+        self.writer.add_scalar('eval_vae/loss', recon_loss)
+        self.writer.add_scalar('eval_vae/kl_loss', kl_loss)
+        self.writer.add_scalar('eval_vae/tot_loss', tot_loss)
+
 
 
 def make_env(id: int, quality='hd', race_config_args={}):
