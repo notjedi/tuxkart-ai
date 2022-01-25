@@ -32,6 +32,10 @@ class STKAgent():
         self.state = pystk.WorldState()
         self.currentAction = pystk.Action()
         self.image = np.zeros(self.observation_shape, dtype=np.float32)
+        self.AI = True
+        for player in raceConfig.players:
+            if player.controller == pystk.PlayerConfig.Controller.PLAYER_CONTROL:
+                self.AI = False
 
     def _check_nitro(self) -> bool:
         kartLoc = np.array(self.playerKart.location)
@@ -152,6 +156,7 @@ class STKAgent():
                 self.state.update()
                 self.track.update()
                 self.image = np.array(self.race.render_data[0].image, dtype=np.float32)
+            # compute only if it's player controlled
             self.path_width = np.array(self.track.path_width)
             self.path_distance = np.array(self.track.path_distance)
             self.path_nodes = np.array(self._compute_lines(self.track.path_nodes))
@@ -159,17 +164,23 @@ class STKAgent():
         self.started = True
         return self.image
 
-    def step(self, action:list):
+    def step(self, action = None):
+        # TODO: remove this and reset while initing env, change files accordingly
         if not self.started:
             self.reset()
             self.started = True
-        self._update_action(action)
-        self.race.step(self.currentAction)
+
+        if self.AI:
+            self.race.step()
+            info = None
+        else:
+            self._update_action(action)
+            self.race.step(self.currentAction)
+            info = self.get_info()
+
         self.state.update()
         self.track.update()
         self.image = np.array(self.race.render_data[0].image, dtype=np.float32)
-
-        info = self.get_info()
         done = self.done()
         return self.image, 0, done, info
 
@@ -215,7 +226,8 @@ class STKEnv(gym.Env):
         self.action_space = MultiDiscrete([2, 2, 3, 2, 2, 2])
 
     def step(self, action):
-        assert self.action_space.contains(action), f'Invalid Action {action}'
+        if action:
+            assert self.action_space.contains(action), f'Invalid Action {action}'
         return self.env.step(action)
 
     def reset(self):
@@ -251,13 +263,17 @@ class STKReward(gym.Wrapper):
         # TODO: rewards for using powerup - only if it hits other karts
         # TODO: change value of USE_POWERUP when accounted for hitting other karts
         super(STKReward, self).__init__(env)
+        self.observation_shape = self.env.observation_shape
+        self.observation_space = Box(low=np.zeros(self.observation_shape),
+                                    high=np.full(self.observation_shape, 255,
+                                    dtype=np.float32))
         self.reward = 0
         self.prevInfo = None
         self.total_jumps = 0
         self.no_movement = 0
         self.jump_threshold = 10
-        self.no_movement_threshold = 30
         self.out_of_track_count = 0
+        self.no_movement_threshold = 30
         self.out_of_track_threshold = 15
 
     def _get_reward(self, action, info):
@@ -325,10 +341,11 @@ class STKReward(gym.Wrapper):
 
     def step(self, action):
         state, reward, done, info = self.env.step(action)
-        reward = self._get_reward(action, info)
-        if info.get("early_end", False):
-            done = True
-            print(f'env_id: {self.env.env.id} - {info.get("early_end_reason", "None")}')
+        if info is not None:
+            reward = self._get_reward(action, info)
+            if info.get("early_end", False):
+                done = True
+                print(f'env_id: {self.env.env.id} - {info.get("early_end_reason", "None")}')
         return state, reward, done, info
 
 
@@ -336,6 +353,10 @@ class GrayScaleObservation(gym.ObservationWrapper):
 
     def __init__(self, env):
         super().__init__(env)
+        self.observation_shape = self.env.observation_shape[:2]
+        self.observation_space = Box(low=np.zeros(self.observation_shape),
+                                    high=np.full(self.observation_shape, 255,
+                                    dtype=np.float32))
         self.transform = T.Grayscale()
 
     def permute_orientation(self, observation):
@@ -353,6 +374,10 @@ class SkipFrame(gym.Wrapper):
         """Return only every `skip`-th frame"""
         super().__init__(env)
         self._skip = skip
+        self.observation_shape = self.env.observation_shape
+        self.observation_space = Box(low=np.zeros(self.observation_shape),
+                                    high=np.full(self.observation_shape, 255,
+                                    dtype=np.float32))
 
     def step(self, action):
         """Repeat action, and sum reward"""
