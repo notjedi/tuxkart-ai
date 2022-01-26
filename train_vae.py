@@ -6,6 +6,7 @@ from tqdm import tqdm
 from torch import nn
 from pathlib import Path
 from torch.optim import Adam
+import torchvision.transforms as T
 from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
 from stable_baselines3.common.vec_env import SubprocVecEnv
@@ -69,6 +70,13 @@ def main(args):
     obs_shape += (1, ) if len(obs_shape) == 2 else ()
     env.close()
 
+    # https://arxiv.org/abs/2004.14990
+    # https://pytorch.org/vision/master/transforms.html
+    transform = T.RandomApply(transforms=[T.ColorJitter(brightness=0.5, hue=0.3),
+        T.RandomRotation(degrees=(0, 180)), T.RandomCrop(size=(320, 500)), T.RandomHorizontalFlip(),
+        T.Pad(50), T.CenterCrop((320, 500)), T.RandomPerspective(), T.RandomErasing()])
+    transform = T.Compose([transform, T.Resize(size=obs_shape[:-1])])
+
     vae = ConvVAE(obs_shape, Encoder, Decoder, args.zdim)
     vae.to(args.device)
     if args.model_path is not None:
@@ -83,22 +91,26 @@ def main(args):
     min_loss = 1e6
     stop_counter = 0
 
-    with tqdm(total=1e5, position=0):
+    g_bar = tqdm(total=1e5, position=0)
+    while g_bar.n < g_bar.total:
         train_data = torch.from_numpy(collect_data(args.num_envs, args.per_env_sample))
         train_data = preprocess_grayscale_images(train_data)
         data_len = len(train_data)
 
         # TODO: wrap these in functions?
         mini_batch_size = min(args.mini_batch_size, data_len)
-        epoch_size = 1 if mini_batch_size == data_len else data_len
+        epoch_size = 1 if mini_batch_size == data_len else data_len // 2
 
-        t = tqdm((range(epoch_size)), position=2, leave=False)
+        t = tqdm((range(epoch_size)), position=1, leave=False)
         for _ in t:
 
             optim.zero_grad()
             mini_batch_idx = np.random.randint(0, data_len, mini_batch_size)
             images = train_data[mini_batch_idx].to(args.device)
-            recon_images, mu, logvar = vae(images)
+            if step > 10000:
+                recon_images, mu, logvar = vae(transform(images))
+            else:
+                recon_images, mu, logvar = vae(images)
 
             # KL-div = cross entropy - entropy
             # https://chrisorm.github.io/VAE-pyt.html
@@ -116,11 +128,11 @@ def main(args):
             tot_loss.backward()
             nn.utils.clip_grad_norm_(vae.parameters(), args.clip)
             optim.step()
-            t.set_description(f"Recon loss: {recon_loss:.2f} KL loss: {kl_loss:.2f}")
-
-            if step % args.beta_anneal_interval == 0:
-                beta = min(beta + 0.02, 1)
+            t.set_description(f"Recon-loss: {recon_loss:.2f}, KL-loss: {beta*kl_loss:.2f}")
             logger.log_vae_train(recon_loss.item(), kl_loss.item(), tot_loss.item())
+
+        if step % args.beta_anneal_interval == 0:
+            beta = min(beta + 0.02, 1)
 
         if step % args.eval_interval == 0:
             # i only have 8 gigs of memory
@@ -128,6 +140,7 @@ def main(args):
             eval(vae, loss_fn, logger, beta, args.device, args.eval_size)
 
         step += 1
+        g_bar.update(1)
         if tot_loss < min_loss:
             # TODO: should i add kl tolerance?
             stop_counter = 0

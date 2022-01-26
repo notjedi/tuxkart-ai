@@ -20,8 +20,7 @@ def inspect(vae, device, sample_size, quality):
     env.reset()
 
     step, obs_shape = 0, env.observation_space.shape
-    acts = np.array([None])
-    images = np.empty((sample_size, 1) + obs_shape, dtype=np.float32)
+    acts, images = np.array([None]), np.empty((sample_size, 1) + obs_shape, dtype=np.float32)
 
     pbar = tqdm(total=sample_size, position=0)
     while step < sample_size:
