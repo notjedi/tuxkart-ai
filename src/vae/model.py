@@ -45,14 +45,18 @@ class ConvVAE(nn.Module):
 
     def _init_weights(self):
         for module in self.modules():
-            if isinstance(module, (nn.Conv2d, nn.Linear)):
-                nn.init.xavier_uniform_(module.weight)
+            if isinstance(module, (nn.Conv2d, nn.ConvTranspose2d, nn.Linear)):
+                nn.init.uniform_(module.weight, -0.08, 0.08)
                 if module.bias is not None:
                     nn.init.constant_(module.bias, 0)
             elif isinstance(module, nn.BatchNorm2d):
                 nn.init.constant_(module.weight, 1)
                 if module.bias is not None:
                     nn.init.constant_(module.bias, 0)
+        # https://stackoverflow.com/questions/49634488/keras-variational-autoencoder-nan-loss
+        # out of all the suggestions, this is the only thread that worked for me
+        nn.init.constant_(self.encoder.fc2.weight, 0)
+        nn.init.constant_(self.encoder.fc2.bias, 0)
 
 
 class Encoder(nn.Module):

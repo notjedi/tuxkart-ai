@@ -170,7 +170,7 @@ class STKAgent():
     def step(self, action = None):
         if self.AI:
             self.race.step()
-            info = None
+            info = {}
         else:
             self._update_action(action)
             self.race.step(self.currentAction)
@@ -339,7 +339,7 @@ class STKReward(gym.Wrapper):
 
     def step(self, action):
         state, reward, done, info = self.env.step(action)
-        if info is not None:
+        if len(info) > 1:
             reward = self._get_reward(action, info)
             if info.get("early_end", False):
                 done = True
