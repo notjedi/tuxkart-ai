@@ -65,26 +65,29 @@ class Logger():
         self.writer.add_scalar("train/policy_loss", actor_loss, self.train_step)
         self.writer.add_scalar("train/value_loss", critic_loss, self.train_step)
         self.writer.add_scalar("train/loss", loss, self.train_step)
-        self.writer.flush()
         self.train_step += 1
 
     def log_eval(self, reward, value, tot_reward, image):
         self.writer.add_scalar('eval/rewards', reward, self.eval_step)
         self.writer.add_scalar('eval/values', value, self.eval_step)
         self.writer.add_scalar('eval/total_rewards', tot_reward, self.eval_step)
-        self.writer.add_image('eval/image', image, self.eval_step, dataformats='WH')
-        self.writer.flush()
+        self.writer.add_image('eval/image', image, self.eval_step, dataformats='HW')
         self.eval_step += 1
 
     def log_vae_train(self, recon_loss, kl_loss, tot_loss):
-        self.writer.add_scalar('train_vae/loss', recon_loss)
-        self.writer.add_scalar('train_vae/kl_loss', kl_loss)
-        self.writer.add_scalar('train_vae/tot_loss', tot_loss)
+        self.writer.add_scalar('train_vae/loss', recon_loss, self.vae_train_step)
+        self.writer.add_scalar('train_vae/kl_loss', kl_loss, self.vae_train_step)
+        self.writer.add_scalar('train_vae/tot_loss', tot_loss, self.vae_train_step)
+        self.vae_train_step += 1
 
-    def log_vae_eval(self, recon_loss, kl_loss, tot_loss):
-        self.writer.add_scalar('eval_vae/loss', recon_loss)
-        self.writer.add_scalar('eval_vae/kl_loss', kl_loss)
-        self.writer.add_scalar('eval_vae/tot_loss', tot_loss)
+    def log_vae_eval(self, recon_loss, kl_loss, tot_loss, images, recon_images):
+        self.writer.add_scalar('eval_vae/loss', recon_loss, self.vae_eval_step)
+        self.writer.add_scalar('eval_vae/kl_loss', kl_loss, self.vae_eval_step)
+        self.writer.add_scalar('eval_vae/tot_loss', tot_loss, self.vae_eval_step)
+        self.writer.add_images('eval_vae/images', images, self.vae_eval_step, dataformats='NCHW')
+        self.writer.add_images('eval_vae/recon_images', recon_images, self.vae_eval_step,
+                dataformats='NCHW')
+        self.vae_eval_step += 1
 
 
 

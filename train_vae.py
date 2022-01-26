@@ -41,16 +41,16 @@ def collect_data(num_envs, per_env_sample):
 
 
 @torch.no_grad()
-def eval(vae, loss_fn, logger, device, eval_size):
+def eval(vae, loss_fn, logger, beta, device, eval_size):
     eval_images = torch.from_numpy(preprocess_grayscale_images(collect_data(1,
         eval_size))).to(device)
     recon_images, mu, logvar = vae(eval_images)
 
-    recon_loss = loss_fn(eval_images, recon_images, reduction='none').sum(tuple(range(1,
-        eval_images.dim()))).mean()
-    kl_loss = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).sum(dim=1).mean()
-    tot_loss = recon_loss + kl_loss
-    logger.log_vae_eval(recon_loss.item(), kl_loss.item(), tot_loss.item())
+    recon_loss = loss_fn(eval_images, recon_images, reduction='mean')
+    kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
+    tot_loss = recon_loss + beta * kl_loss
+    logger.log_vae_eval(recon_loss.item(), kl_loss.item(), tot_loss.item(),
+            eval_images.cpu().numpy(), recon_images.cpu().numpy())
 
 
 def main(args):
@@ -62,8 +62,7 @@ def main(args):
     torch.cuda.manual_seed(args.seed)
     loss_fn_dict = { 'mse': F.mse_loss, 'bce': F.binary_cross_entropy }
     loss_fn = loss_fn_dict[args.loss_fn]
-    if not os.path.isdir(args.save_dir):
-        os.makedirs(args.save_dir)
+    args.save_dir.mkdir(parents=True, exist_ok=True)
 
     env = make_env(id)()
     obs_shape = env.observation_space.shape
@@ -77,7 +76,8 @@ def main(args):
         vae.load_state_dict(torch.load(args.model_path))
 
     optim = Adam(vae.parameters(), lr=args.lr)
-    logger = Logger(SummaryWriter(log_dir=args.log_dir))
+    tensorboard_file_name = args.log_dir.joinpath(f"vae/{args.zdim}-{args.loss_fn}/")
+    logger = Logger(SummaryWriter(tensorboard_file_name, flush_secs=60))
     step = 1
     beta = 0
     min_loss = 1e6
@@ -107,7 +107,6 @@ def main(args):
             if torch.isnan(kl_loss) or torch.isnan(recon_loss):
                 print("Loss is NaN, stopping...")
                 return
-            # Normalise by same number of elements as in reconstruction
             # https://stats.stackexchange.com/questions/267924/explanation-of-the-free-bits-technique-for-variational-autoencoders
             # https://github.com/hardmaru/WorldModelsExperiments/blob/master/carracing/vae/vae.py#L76
             # https://github.com/hardmaru/WorldModelsExperiments/issues/8
@@ -126,7 +125,7 @@ def main(args):
         if step % args.eval_interval == 0:
             # i only have 8 gigs of memory
             del train_data
-            eval(vae, loss_fn, logger, args.device, args.eval_size)
+            eval(vae, loss_fn, logger, beta, args.device, args.eval_size)
 
         step += 1
         if tot_loss < min_loss:
@@ -147,6 +146,7 @@ if __name__ == '__main__':
     from os.path import join
     parser = argparse.ArgumentParser()
 
+    # TODO: add/remove these
     parser.add_argument('--kart', type=str, choices=STK.KARTS, default=None)
     parser.add_argument('--track', type=str, choices=STK.TRACKS, default=None)
     parser.add_argument('--graphic', type=str, choices=['hd', 'ld', 'sd'], default='hd')
