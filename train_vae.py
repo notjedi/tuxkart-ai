@@ -2,7 +2,8 @@ import os
 import torch
 import numpy as np
 
-from tqdm import tqdm, trange
+from tqdm import tqdm
+from torch import nn
 from pathlib import Path
 from torch.optim import Adam
 from torch.nn import functional as F
@@ -19,12 +20,14 @@ def preprocess_grayscale_images(images):
 
 def collect_data(num_envs, per_env_sample):
     acts, step = np.array([None for _ in range(num_envs)]), 0
-    env = SubprocVecEnv([make_env(i, 'hd', { 'difficulty': 3, 'reverse': np.random.choice([True, False]),
-        'vae': True }) for i in range(num_envs)], start_method='spawn')
+    env = SubprocVecEnv([make_env(i, 'hd', { 'difficulty': 3, 'reverse': np.random.choice([True,
+        False]), 'vae': True }) for i in range(num_envs)], start_method='spawn')
+    env.reset()
     obs_shape = env.observation_space.shape
     data = np.empty((per_env_sample, num_envs) + obs_shape, dtype=np.float32)
 
-    with tqdm(total=per_env_sample, position=1, leave=False) as pbar:
+    pbar = tqdm(total=per_env_sample, position=1, leave=False)
+    while step < per_env_sample:
         obs, _, done, _ = env.step(acts)
         if np.random.rand() < 0.6:
             data[step] = np.array(obs)
@@ -54,6 +57,7 @@ def main(args):
 
     if args.device == 'cuda':
         assert torch.cuda.is_available(), "Cuda backend not available."
+    # torch.autograd.set_detect_anomaly(True) # set this to true if you get NaN's
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
     loss_fn_dict = { 'mse': F.mse_loss, 'bce': F.binary_cross_entropy }
@@ -63,8 +67,7 @@ def main(args):
 
     env = make_env(id)()
     obs_shape = env.observation_space.shape
-    if len(obs_shape) == 2:
-        obs_shape += (1, )
+    obs_shape += (1, ) if len(obs_shape) == 2 else ()
     env.close()
 
     vae = ConvVAE(obs_shape, Encoder, Decoder, args.zdim)
@@ -80,7 +83,7 @@ def main(args):
     min_loss = 1e6
     stop_counter = 0
 
-    with tqdm(total=1e5, position=0)
+    with tqdm(total=1e5, position=0):
         train_data = torch.from_numpy(collect_data(args.num_envs, args.per_env_sample))
         train_data = preprocess_grayscale_images(train_data)
         data_len = len(train_data)
@@ -89,33 +92,36 @@ def main(args):
         mini_batch_size = min(args.mini_batch_size, data_len)
         epoch_size = 1 if mini_batch_size == data_len else data_len
 
-        for _ in tqdm(range(args.epoch), position=2, leave=False):
-            t = tqdm((range(epoch_size)), position=3, leave=False)
-            for _ in t:
+        t = tqdm((range(epoch_size)), position=2, leave=False)
+        for _ in t:
 
-                optim.zero_grad()
-                mini_batch_idx = np.random.randint(0, data_len, mini_batch_size)
-                images = train_data[mini_batch_idx].to(args.device)
-                recon_images, mu, logvar = vae(images)
+            optim.zero_grad()
+            mini_batch_idx = np.random.randint(0, data_len, mini_batch_size)
+            images = train_data[mini_batch_idx].to(args.device)
+            recon_images, mu, logvar = vae(images)
 
-                # KL-div = cross entropy - entropy
-                # https://www.geeksforgeeks.org/role-of-kl-divergence-in-variational-autoencoders/
-                recon_loss = loss_fn(images, recon_images,
-                        reduction='none').sum(tuple(range(1, images.dim()))).mean()
-                kl_loss = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).sum(dim=1).mean()
-                # https://stats.stackexchange.com/questions/267924/explanation-of-the-free-bits-technique-for-variational-autoencoders
-                # https://github.com/hardmaru/WorldModelsExperiments/blob/master/carracing/vae/vae.py#L76
-                # https://github.com/hardmaru/WorldModelsExperiments/issues/8
-                # https://arxiv.org/pdf/1606.04934.pdf - C.8 in page 14
+            # KL-div = cross entropy - entropy
+            # https://chrisorm.github.io/VAE-pyt.html
+            recon_loss = loss_fn(images, recon_images, reduction='mean')
+            kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
+            if torch.isnan(kl_loss) or torch.isnan(recon_loss):
+                print("Loss is NaN, stopping...")
+                return
+            # Normalise by same number of elements as in reconstruction
+            # https://stats.stackexchange.com/questions/267924/explanation-of-the-free-bits-technique-for-variational-autoencoders
+            # https://github.com/hardmaru/WorldModelsExperiments/blob/master/carracing/vae/vae.py#L76
+            # https://github.com/hardmaru/WorldModelsExperiments/issues/8
+            # https://arxiv.org/pdf/1606.04934.pdf - C.8 in page 14
 
-                tot_loss = recon_loss + beta * kl_loss
-                tot_loss.backward()
-                optim.step()
-                t.set_description("Loss: {:.2f}".format(tot_loss))
+            tot_loss = recon_loss + beta * kl_loss
+            tot_loss.backward()
+            nn.utils.clip_grad_norm_(vae.parameters(), args.clip)
+            optim.step()
+            t.set_description(f"Recon loss: {recon_loss:.2f} KL loss: {kl_loss:.2f}")
 
-                if step % args.beta_anneal_interval == 0:
-                    beta = min(beta + 0.03, 2)
-                logger.log_vae_train(recon_loss.item(), kl_loss.item(), tot_loss.item())
+            if step % args.beta_anneal_interval == 0:
+                beta = min(beta + 0.02, 1)
+            logger.log_vae_train(recon_loss.item(), kl_loss.item(), tot_loss.item())
 
         if step % args.eval_interval == 0:
             # i only have 8 gigs of memory
@@ -133,7 +139,7 @@ def main(args):
             stop_counter += 1
             if stop_counter > 5:
                 print("No improvement in the last 5 epochs, stopping")
-                break
+                return
 
 
 if __name__ == '__main__':
@@ -152,13 +158,13 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=1337)
 
     # train args
-    parser.add_argument('--epoch', type=int, default=2)
+    parser.add_argument('--clip', type=float, default=0.5)
     parser.add_argument('--num_envs', type=int, default=4)
-    parser.add_argument('--eval_size', type=int, default=512)
+    parser.add_argument('--eval_size', type=int, default=64)
     parser.add_argument('--eval_interval', type=int, default=10)
     parser.add_argument('--per_env_sample', type=int, default=256)
     parser.add_argument('--mini_batch_size', type=int, default=16)
-    parser.add_argument('--beta_anneal_interval', type=int, default=100)
+    parser.add_argument('--beta_anneal_interval', type=int, default=500)
     parser.add_argument('--loss_fn', type=str, choices=['mse', 'bce'], default='bce')
     parser.add_argument('--device', type=str, choices=['cpu', 'cuda'], default='cuda')
     parser.add_argument('--log_dir', type=Path, default=join(Path(__file__).absolute().parent,
