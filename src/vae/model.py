@@ -24,6 +24,10 @@ class ConvVAE(nn.Module):
         mu, logvar = self.encoder(image)
         return self.reparameterize(mu, logvar)
 
+    def reconstruct(self, image):
+        mu, _ = self.encoder(image)
+        return self.decoder(mu)
+
     def reparameterize(self, mu, logvar):
         """
         for newbies this explains how 0.5 comes in while calculating the `std`:
