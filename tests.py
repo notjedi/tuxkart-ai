@@ -23,15 +23,14 @@ def test_model():
     import torch
     from torchinfo import summary
     from src.model import Net
+    from src.vae.model import ConvVAE, Encoder, Decoder
 
-    OBS_DIM = (600, 400, 3)
     ACT_DIM = (2, 2, 3, 2, 2, 2)
-    DEVICE, BATCH_SIZE, NUM_FRAMES = 'cuda', 8, 5
+    DEVICE, BATCH_SIZE, ZDIM, NUM_FRAMES = torch.device('cuda'), 8, 256, 5
 
-    rand_input = torch.randint(0, 255, (BATCH_SIZE, NUM_FRAMES, *OBS_DIM[:-1]),
-            device=DEVICE, dtype=torch.float32)
-    model = Net(OBS_DIM, ACT_DIM, NUM_FRAMES)
+    model = Net(ZDIM, ACT_DIM, BATCH_SIZE)
     model.to(DEVICE)
+    rand_input = torch.rand(NUM_FRAMES, BATCH_SIZE, ZDIM, device=DEVICE, dtype=torch.float32)
 
     # summary(model, input_data=rand_input, verbose=1) # remove MultiCategorical while using summary
     policy, value = model(rand_input)
@@ -49,22 +48,24 @@ def test_ppo():
     from src.model import Net
     from src.env import STKEnv
     from src.utils import STK, Logger, make_env
+    from src.vae.model import ConvVAE, Encoder, Decoder
 
-    DEVICE, BUFFER_SIZE, NUM_FRAMES, NUM_ENVS, LR = 'cuda', 8, 5, 1, 1e-3
+    DEVICE, BUFFER_SIZE, NUM_FRAMES, NUM_ENVS, LR, ZDIM = 'cuda', 8, 5, 1, 1e-3, 256
     env = SubprocVecEnv([make_env(id) for id in range(NUM_ENVS)], start_method='spawn')
     obs_shape, act_shape = env.observation_space.shape, env.action_space.nvec
 
-    model = Net(obs_shape, act_shape, NUM_FRAMES)
-    model.to(DEVICE)
+    vae = ConvVAE(obs_shape, Encoder, Decoder, ZDIM)
+    vae.to(DEVICE)
+    lstm = Net(ZDIM + 4, act_shape, NUM_ENVS)
+    lstm.to(DEVICE)
 
-    buf_args = { 'buffer_size': BUFFER_SIZE, 'batch_size': NUM_ENVS, 'obs_dim': obs_shape,
-            'act_dim': act_shape, 'num_frames': NUM_FRAMES-1, 'gamma': PPO.GAMMA, 'lam': PPO.LAMBDA
-            }
-    optimizer = optim.Adam(model.parameters(), lr=LR)
+    buf_args = { 'buffer_size': BUFFER_SIZE, 'batch_size': NUM_ENVS, 'zdim': ZDIM + 4,
+            'act_dim': act_shape, 'num_frames': NUM_FRAMES, 'gamma': PPO.GAMMA, 'lam': PPO.LAMBDA }
+    optimizer = optim.Adam(lstm.parameters(), lr=LR)
     writer = SummaryWriter('/tmp/tensorboard')
     logger = Logger(writer)
 
-    ppo = PPO(env, model, optimizer, logger, DEVICE, **buf_args)
+    ppo = PPO(env, vae, lstm, optimizer, logger, DEVICE, **buf_args)
     ppo.rollout()
     ppo.train()
     env.close()
