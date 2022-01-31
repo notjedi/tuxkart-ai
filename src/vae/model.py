@@ -13,8 +13,10 @@ class ConvVAE(nn.Module):
     :param build_decoder:
     """
 
-    def __init__(self, obs_shape, encoder_class, decoder_class, zdim: int):
+    def __init__(self, obs_shape: tuple, encoder_class, decoder_class, zdim: int):
         super(ConvVAE, self).__init__()
+        self.zdim = zdim
+        obs_shape += (1,) if len(obs_shape) == 2 else ()
         self.encoder = encoder_class(obs_shape, zdim)
         self.decoder = decoder_class(zdim, self.encoder.latent_shape, obs_shape)
         assert torch.all(torch.tensor(obs_shape) == self.decoder.recons_shape)
@@ -28,6 +30,9 @@ class ConvVAE(nn.Module):
         mu, _ = self.encoder(image)
         return self.decoder(mu)
 
+    def encode(self, image):
+        return self.encoder(image)
+
     def reparameterize(self, mu, logvar):
         """
         for newbies this explains how 0.5 comes in while calculating the `std`:
@@ -40,10 +45,8 @@ class ConvVAE(nn.Module):
         z = torch.randn_like(std)
         return mu + (z * logvar)
 
-    def forward(self, image, mean=False):
+    def forward(self, image):
         mu, logvar = self.encoder(image)
-        if mean:
-            return mu
         latent_repr = self.reparameterize(mu, logvar)
         return self.decoder(latent_repr), mu, logvar
 
@@ -60,7 +63,6 @@ class ConvVAE(nn.Module):
         # https://stackoverflow.com/questions/49634488/keras-variational-autoencoder-nan-loss
         # out of all the suggestions, this is the only thread that worked for me
         nn.init.constant_(self.encoder.fc2.weight, 0)
-        nn.init.constant_(self.encoder.fc2.bias, 0)
 
 
 class Encoder(nn.Module):
