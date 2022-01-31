@@ -224,7 +224,7 @@ class STKEnv(gym.Env):
         self.action_space = MultiDiscrete([2, 2, 3, 2, 2, 2])
 
     def step(self, action):
-        if action:
+        if action is not None:
             assert self.action_space.contains(action), f'Invalid Action {action}'
         return self.env.step(action)
 
@@ -233,6 +233,9 @@ class STKEnv(gym.Env):
 
     def render(self, mode: str = 'human'):
         return self.env.image
+
+    def get_info(self):
+        return self.env.get_info()
 
     def get_env_info(self):
         return self.env.get_env_info()

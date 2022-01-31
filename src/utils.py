@@ -74,16 +74,18 @@ class Logger():
         self.writer.add_image('eval/image', image, self.eval_step, dataformats='HW')
         self.eval_step += 1
 
-    def log_vae_train(self, recon_loss, kl_loss, tot_loss):
+    def log_vae_train(self, recon_loss, kl_loss, tot_loss, beta):
         self.writer.add_scalar('train_vae/loss', recon_loss, self.vae_train_step)
         self.writer.add_scalar('train_vae/kl_loss', kl_loss, self.vae_train_step)
         self.writer.add_scalar('train_vae/tot_loss', tot_loss, self.vae_train_step)
+        self.writer.add_scalar('train_vae/beta', beta, self.vae_train_step)
         self.vae_train_step += 1
 
-    def log_vae_eval(self, recon_loss, kl_loss, tot_loss, images, recon_images):
+    def log_vae_eval(self, recon_loss, kl_loss, tot_loss, images, recon_images, beta):
         self.writer.add_scalar('eval_vae/loss', recon_loss, self.vae_eval_step)
         self.writer.add_scalar('eval_vae/kl_loss', kl_loss, self.vae_eval_step)
         self.writer.add_scalar('eval_vae/tot_loss', tot_loss, self.vae_eval_step)
+        self.writer.add_scalar('eval_vae/beta', beta, self.vae_eval_step)
         self.writer.add_images('eval_vae/images', images, self.vae_eval_step, dataformats='NCHW')
         self.writer.add_images('eval_vae/recon_images', recon_images, self.vae_eval_step,
                 dataformats='NCHW')
@@ -111,24 +113,22 @@ def make_env(id: int, quality='hd', race_config_args={}):
     return _init
 
 
-def get_encoder(obs_shape):
+def get_encoder():
     # encodes for channel-last layout
     import numpy as np
-
-    num_info = 4
-    idx_array = np.array_split(np.arange(obs_shape[0]), num_info)
+    num_infos = 4
 
     def encode(infos):
-        info_image  = np.zeros((len(infos), ) + obs_shape[:-1], dtype=np.float32)
+        encoded_infos = np.zeros((len(infos), num_infos), dtype=np.float32)
 
         for i, info in enumerate(infos):
             if info is None:
                 continue
-            info_image[i, idx_array[0], :] = info["nitro"]
-            info_image[i, idx_array[1], :] = info["position"]
-            info_image[i, idx_array[2], :] = info["powerup"].value # val of NOTHING = 0
-            info_image[i, idx_array[3], :] = info["attachment"].value # val of NOTHING = 9
-        return info_image
+            encoded_infos[i, 0] = info["nitro"]
+            encoded_infos[i, 1] = info["position"]
+            encoded_infos[i, 2] = info["powerup"].value # val of NOTHING = 0
+            encoded_infos[i, 3] = info["attachment"].value # val of NOTHING = 9
+        return encoded_infos
 
     return encode
 
