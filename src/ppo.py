@@ -6,28 +6,27 @@ from collections import deque
 from scipy.signal import lfilter
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
-from src.utils import get_encoder
+from .utils import get_encoder
 
 class PPOBuffer:
     """
     Buffer to save all the (s, a, r, s`) for each step taken.
     """
 
-    def __init__(self, buffer_size, batch_size, obs_dim, act_dim, num_frames, gamma, lam):
+    def __init__(self, buffer_size, batch_size, zdim, act_dim, num_frames, gamma, lam):
         self.ptr = 0
         self.buffer_size = buffer_size
         self.batch_size = batch_size
         self.num_frames = num_frames
-        self.obs_dim = obs_dim
         self.act_dim = act_dim
         self.gamma = gamma
+        self.zdim = zdim
         self.lam = lam
         self.reset()
 
     def reset(self):
         # an optimization would be to store the dict instead of the array
-        self.infos = []
-        self.obs = np.zeros((self.buffer_size, self.batch_size, *self.obs_dim[:-1]), dtype=np.float32)
+        self.obs = np.zeros((self.buffer_size, self.batch_size, self.zdim), dtype=np.float32)
         self.actions = np.zeros((self.buffer_size, self.batch_size, len(self.act_dim)), dtype=np.float32)
         self.rewards = np.zeros((self.buffer_size, self.batch_size), dtype=np.float32)
         self.returns = np.zeros((self.buffer_size, self.batch_size), dtype=np.float32)
@@ -35,12 +34,11 @@ class PPOBuffer:
         self.log_probs = np.zeros((self.buffer_size, self.batch_size), dtype=np.float32)
         self.advantage = np.zeros((self.buffer_size, self.batch_size), dtype=np.float32)
 
-    def save(self, obs, act, reward, value, infos, log_prob):
+    def save(self, obs, act, reward, value, log_prob):
         self.obs[self.ptr] = obs
         self.actions[self.ptr] = act
         self.rewards[self.ptr] = reward
         self.values[self.ptr] = value
-        self.infos.append(infos)
         self.log_probs[self.ptr] = log_prob
         self.ptr += 1
 
@@ -67,7 +65,7 @@ class PPOBuffer:
         deltas = self.rewards + self.gamma * self.values[1:] - self.values[:-1]
         self.advantage = self.discounted_sum(deltas, self.gamma * self.lam)     # advantage estimate using GAE
         self.returns = self.discounted_sum(self.rewards, self.gamma)            # discounted sum of rewards
-        self.advantage = (self.advantage - np.mean(self.advantage, axis=0)) / (np.std(self.advantage, axis=0) + 1e-6) # axis 0 because advantage is of shape (buffer_size,
+        self.advantage = (self.advantage - self.advantage.mean(axis=0)) / (self.advantage.std(axis=0) + 1e-5) # axis 0 because advantage is of shape (buffer_size,
         # self.returns = self.advantage - self.values[:-1]                      # some use this, some use the above
         del self.values
 
@@ -80,7 +78,8 @@ class PPOBuffer:
     def get(self):
         idx = np.random.randint(low=self.num_frames, high=self.ptr)
         idx_range = slice(idx-self.num_frames, idx)
-        return self.obs[idx_range], self.actions[idx], self.infos[idx], self.returns[idx], self.log_probs[idx], self.advantage[idx]
+        return (self.obs[idx_range], self.actions[idx], self.returns[idx], self.log_probs[idx],
+            self.advantage[idx])
 
 
 class PPO():
@@ -92,67 +91,68 @@ class PPO():
     ENTROPY_BETA = 0.2
     CRITIC_DISCOUNT = 0.5
 
-    def __init__(self, env: SubprocVecEnv, model, optimizer, logger, device, **buffer_args):
+    def __init__(self, env: SubprocVecEnv, vae, lstm, optimizer, logger, device, **buffer_args):
         """
         :param env: list of STKEnv or vectorized envs?
         """
 
         self.env = env
-        self.model = model
+        self.vae = vae
+        self.lstm = lstm
         self.opt = optimizer
         self.device = device
         self.logger = logger
-        self.info_encoder = get_encoder(env.observation_space.shape)
+        self.info_encoder = get_encoder()
         buffer_args['gamma'], buffer_args['lam'] = self.GAMMA, self.LAMBDA
         self.buffer = PPOBuffer(**buffer_args)
-        self.num_frames = buffer_args['num_frames'] + 1
-        self.buffer_size = buffer_args['buffer_size']
+        self.num_frames = buffer_args['num_frames']
+        self.zdim, self.buffer_size = buffer_args['zdim'], buffer_args['buffer_size']
 
+    @torch.no_grad()
     def rollout(self):
 
-        prevInfo = [None for _ in range(self.env.num_envs)]
-        images = self.env.reset()
-        images = deque([np.array(images) for _ in range(self.num_frames)], maxlen=self.num_frames)
+        self.env.reset()
+        prev_info = self.info_encoder(self.env.env_method('get_info'))
+        latent_repr = deque(np.zeros((self.num_frames, self.env.num_envs, self.zdim),
+            dtype=np.float32), maxlen=self.num_frames)
+        # TODO
+        # latent_repr.append(self.vae(self.env.env_method('render')))
         to_numpy = lambda x: x.to(device='cpu').numpy()
 
-        with torch.no_grad():
-            for i in trange(self.buffer_size):
+        for i in trange(self.buffer_size):
 
-                encoded_infos = self.info_encoder(prevInfo)
-                images[0] = encoded_infos # basically appending left without popping off the last element from the other side
-                obs = torch.from_numpy(np.transpose(np.array(images), (1, 0, 2, 3))).to(self.device)
+            dist, value = self.lstm(torch.from_numpy(np.array(latent_repr)).to(self.device))
+            action = dist.sample()
+            log_prob = dist.log_prob(action)
 
-                dist, value = self.model(obs)
-                action = dist.sample()
-                log_prob = dist.log_prob(action)
-                obs, reward, done, info = self.env.step(to_numpy(action))
-                self.buffer.save(images[-1], to_numpy(action), reward,
-                        to_numpy(value.squeeze(dim=-1)), prevInfo, to_numpy(log_prob))
-                prevInfo = info
-                images.append(obs)
+            obs, reward, done, info = self.env.step(to_numpy(action))
+            obs = torch.from_numpy(np.array(obs)).unsqueeze(dim=1).to(self.device)
+            prev_info = self.info_encoder(info)
 
-                if done.any():
-                    break
+            latent_repr.append(np.column_stack((self.vae.encode(obs)[0].cpu().numpy(),
+                prev_info)))
+            self.buffer.save(latent_repr[-1], to_numpy(action), reward,
+                    to_numpy(value.squeeze(dim=-1)), to_numpy(log_prob))
 
-            print('-------------------------------------------------------------')
-            print(f'Trajectory cut off at {i+1} time steps')
-            env_infos = np.array(self.env.env_method('get_env_info'))
-            race_infos = np.array(info)
+            if done.any():
+                break
 
-            for env_info, race_info in zip(env_infos, race_infos):
-                for key, value in env_info.items():
-                    print(f'{key}: {value}')
-                print(f'done: {race_info["done"]}')
-                print(f'velocity: {race_info["velocity"]}')
-                print(f'overall_distance: {race_info["overall_distance"]}')
-                print()
-            print('-------------------------------------------------------------\n')
+        print('-------------------------------------------------------------')
+        print(f'Trajectory cut off at {i+1} time steps')
+        env_infos = np.array(self.env.env_method('get_env_info'))
+        race_infos = np.array(info)
 
-            encoded_infos = self.info_encoder(prevInfo)
-            images[0] = encoded_infos
-            obs = torch.from_numpy(np.transpose(np.array(images), (1, 0, 2, 3))).to(self.device)
-            _, next_value = self.model(obs)
-            self.buffer.compute_gae(to_numpy(next_value.squeeze(dim=1)))
+        for env_info, race_info in zip(env_infos, race_infos):
+            for key, value in env_info.items():
+                print(f'{key}: {value}')
+            print(f'done: {race_info["done"]}')
+            print(f'velocity: {race_info["velocity"]}')
+            print(f'overall_distance: {race_info["overall_distance"]}')
+            print()
+        print('-------------------------------------------------------------\n')
+
+        _, next_value = self.lstm(torch.from_numpy(np.array(latent_repr)).to(self.device))
+        self.buffer.compute_gae(to_numpy(next_value.squeeze(dim=-1)))
 
     def train(self):
 
@@ -167,9 +167,8 @@ class PPO():
             for timestep in t:
 
                 self.opt.zero_grad()
-                obs, act, info, returns, logp_old, adv = map(to_cuda, self.buffer.get())
-                obs = torch.cat((to_cuda(self.info_encoder(info)).unsqueeze(dim=0), obs), dim=0)
-                dist, value_new = self.model(obs.permute(1, 0, 2, 3)) # transpose axes because it is originally in shape (D, N, H, W)
+                latent_repr, act, returns, logp_old, adv = map(to_cuda, self.buffer.get())
+                dist, value_new = self.lstm(latent_repr)
                 logp_new = dist.log_prob(act)
 
                 ratio = (logp_new - logp_old).exp()

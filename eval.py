@@ -12,42 +12,46 @@ from stable_baselines3.common.vec_env import SubprocVecEnv
 from src.model import Net
 from src.utils import Logger, make_env, get_encoder, action_to_dict
 
-def eval(env, model, logger, args, log=False, render=False):
+@torch.no_grad()
+def eval(env, vae, lstm, logger, args, log=False, render=False):
 
     assert env.num_envs == 1, 'eval is only supported for num_envs = 1'
-    prevInfo = [None for _ in range(env.num_envs)]
-    images = env.reset()
-    images = deque([np.array(images) for _ in range(args.num_frames)], maxlen=args.num_frames)
+    env.reset()
+    vae.eval()
+    lstm.eval()
+
+    info_encoder = get_encoder()
+    prev_info = info_encoder(env.env_method('get_info'))
+    latent_repr = deque(np.zeros((args.num_frames, env.num_envs, vae.zdim + 4),
+        dtype=np.float32), maxlen=args.num_frames)
     to_numpy = lambda x: x.to(device='cpu').numpy()
-    encoder = get_encoder(env.observation_space.shape)
     tot_reward = 0
 
-    with torch.no_grad():
-        t = tqdm(range(args.eval_steps))
-        for i in t:
-            encoded_infos = encoder(prevInfo)
-            images[0] = encoded_infos
-            obs = torch.from_numpy(np.transpose(np.array(images), (1, 0, 2, 3))).to(args.device)
+    t = tqdm(range(args.eval_steps))
+    for i in t:
 
-            dist, value = model(obs)
-            action = to_numpy(dist.mode())
-            obs, reward, done, info = env.step(action)
-            sum_reward = reward.sum()
-            tot_reward += sum_reward
-            prevInfo = info
-            images.append(obs)
-            t.set_description(f"rewards: {sum_reward}")
+        dist, value = lstm(torch.from_numpy(np.array(latent_repr)).to(args.device))
+        action = to_numpy(dist.mode())
 
-            if log:
-                logger.log_eval(sum_reward, value.item(), tot_reward, images[-1].squeeze())
+        obs, reward, done, info = env.step(action)
+        obs = torch.from_numpy(np.array(obs)).unsqueeze(dim=1).to(args.device)
+        prev_info = info_encoder(info)
+        sum_reward = reward.sum()
+        tot_reward += sum_reward
 
-            if render:
-                image = np.array(env.env_method('render')).squeeze()
-                plt.imshow(image.astype(np.uint8))
-                plt.pause(0.1)
+        latent_repr.append(np.column_stack((vae.encode(obs)[0].cpu().numpy(), prev_info)))
+        t.set_description(f"rewards: {sum_reward}")
 
-            if done.any():
-                break
+        if log:
+            logger.log_eval(sum_reward, value.item(), tot_reward, images[-1].squeeze())
+
+        if render:
+            image = np.array(env.env_method('render')).squeeze()
+            plt.imshow(image.astype(np.uint8))
+            plt.pause(0.1)
+
+        if done.any():
+            break
 
     return tot_reward
 
@@ -58,15 +62,24 @@ def main(args):
     logger = Logger(writer)
     race_config_args = { 'track': args.track, 'kart': args.kart, 'numKarts': args.num_karts,
             'laps': args.laps, 'reverse': args.reverse, 'difficulty': args.difficulty }
+
+    env = make_env(id)()
+    obs_shape, act_shape = env.observation_space.shape, env.action_space.nvec
+    env.close()
+
+    vae = ConvVAE(obs_shape, Encoder, Decoder, args.zdim)
+    vae.to(args.device)
+    lstm = Net(vae.zdim + 4, act_shape, 1)
+    lstm.to(args.device)
+
+    if args.vae_model_path is not None:
+        vae.load_state_dict(torch.load(args.vae_model_path))
+    if args.lstm_model_path is not None:
+        lstm.load_state_dict(torch.load(args.lstm_model_path))
+
     env = SubprocVecEnv([make_env(id, args.graphic, race_config_args) for id in range(1)],
             start_method='spawn')
-
-    model = Net(env.observation_space.shape, env.action_space.nvec, args.num_frames)
-    model.to(args.device)
-    if args.model_path is not None:
-        model.load_state_dict(torch.load(args.model_path))
-
-    reward = eval(env, model, logger, args, log=True, render=True)
+    reward = eval(env, vae, lstm, logger, args, log=True, render=True)
     print(f'Total rewards: {reward}')
     env.close()
 
@@ -85,10 +98,13 @@ if __name__ == '__main__':
     parser.add_argument('--track', type=str, choices=STK.TRACKS, default=None)
     parser.add_argument('--graphic', type=str, choices=['hd', 'ld', 'sd'], default='hd')
 
+
+    parser.add_argument('--zdim', type=int, default=256)
     parser.add_argument('--num_frames', type=int, default=5)
     parser.add_argument('--eval_steps', type=int, default=2500)
     parser.add_argument('--device', type=str, choices=['cpu', 'cuda'], default='cuda')
-    parser.add_argument('--model_path', type=Path, default=None, help='Load model from path.')
+    parser.add_argument('--vae_model_path', type=Path, default=None, help='Load VAE model from path.')
+    parser.add_argument('--lstm_model_path', type=Path, default=None, help='Load LSTM model from path.')
     parser.add_argument('--log_dir', type=Path, default=join(Path(__file__).absolute().parent,
     'tensorboard'), help='Path to the directory in which the trained models are saved.')
     args = parser.parse_args()
