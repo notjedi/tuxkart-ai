@@ -12,14 +12,15 @@ from stable_baselines3.common.vec_env import SubprocVecEnv
 from src.ppo import PPO
 from src.model import Net
 from src.utils import STK, Logger, make_env
+from src.vae.model import ConvVAE, Encoder, Decoder
 
 
-def eval(model, logger, args):
+def eval(vae, lstm, logger, args):
 
     from eval import eval
     try:
         env = SubprocVecEnv([make_env(id) for id in range(1)], start_method='spawn')
-        tot_reward = np.sum(eval(env, model, logger, args)) / args.num_envs
+        tot_reward = np.sum(eval(env, vae, lstm, logger, args)) / args.num_envs
         env.close()
     except EOFError as e:
         print(e)
@@ -38,31 +39,38 @@ def main(args):
     obs_shape, act_shape = env.observation_space.shape, env.action_space.nvec
     env.close()
 
-    model = Net(obs_shape, act_shape, args.num_frames)
-    model.to(args.device)
-    if args.model_path is not None:
-        print(f"loading model from {args.model_path}")
-        model.load_state_dict(torch.load(args.model_path))
+    vae = ConvVAE(obs_shape, Encoder, Decoder, args.zdim)
+    vae.to(args.device)
+    lstm = Net(vae.zdim + 4, act_shape, args.num_envs)
+    lstm.to(args.device)
+
+    if args.vae_model_path is not None:
+        print(f"loading VAE model from {args.vae_model_path}")
+        vae.load_state_dict(torch.load(args.vae_model_path))
+
+    if args.lstm_model_path is not None:
+        print(f"loading LSTM model from {args.lstm_model_path}")
+        lstm.load_state_dict(torch.load(args.lstm_model_path))
 
     race_config_args = { 'track': args.track, 'kart': args.kart }
-    prev_reward, curr_reward = 0, 0
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=1e-5)
+    prev_reward, curr_reward = -float('inf'), 0
+    optimizer = optim.Adam(lstm.parameters(), lr=args.lr, eps=1e-5)
     writer = SummaryWriter(log_dir=args.log_dir)
     logger = Logger(writer)
 
     for i in trange(args.num_global_steps):
         env = SubprocVecEnv([make_env(id, args.graphic, race_config_args) for id in
             range(args.num_envs)], start_method='spawn')
-        buf_args = { 'buffer_size': args.buffer_size, 'batch_size': args.num_envs, 'obs_dim':
-                env.observation_space.shape, 'act_dim': env.action_space.nvec, 'num_frames':
-                args.num_frames-1 }
-        ppo = PPO(env, model, optimizer, logger, args.device, **buf_args)
+        buf_args = { 'buffer_size': args.buffer_size, 'batch_size': args.num_envs, 'zdim':
+                vae.zdim + 4, 'act_dim': env.action_space.nvec, 'num_frames':
+                args.num_frames }
+        ppo = PPO(env, vae, lstm, optimizer, logger, args.device, **buf_args)
 
         try:
             ppo.rollout()
             env.close()
             ppo.train()
-            torch.save(model.state_dict(), f'{args.save_dir}/model-temp.pth')
+            torch.save(lstm.state_dict(), f'{args.save_dir}/lstm-temp.pth')
         except EOFError as e:
             print(e)
             print(f"EOFError at timestep {i+1}")
@@ -71,13 +79,15 @@ def main(args):
             print("Exiting...")
 
         if (i % args.eval_interval == 0 and i != 0):
-            curr_reward = eval(model, logger, args)
+            curr_reward = eval(vae, lstm, logger, args)
             print(curr_reward)
+            vae.train()
+            lstm.train()
             if (curr_reward > prev_reward):
                 print(f'{curr_reward} is better than {prev_reward}, \
-                        saving model to path model/model-{i}.pth')
+                        saving model to path model/lstm-{i}.pth')
                 prev_reward = curr_reward
-                torch.save(model.state_dict(), f'{args.save_dir}/model-{i}.pth')
+                torch.save(lstm.state_dict(), f'{args.save_dir}/lstm-{i}.pth')
 
 
 if __name__ == '__main__':
@@ -89,7 +99,9 @@ if __name__ == '__main__':
     parser.add_argument('--graphic', type=str, choices=['hd', 'ld', 'sd'], default='hd')
 
     # model args
-    parser.add_argument('--model_path', type=Path, default=None, help='Load model from path.')
+    parser.add_argument('--vae_model_path', type=Path, default=None, help='Load VAE model from path.')
+    parser.add_argument('--lstm_model_path', type=Path, default=None, help='Load LSTM model from path.')
+    parser.add_argument('--zdim', type=int, default=256)
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--seed', type=int, default=1337)
     parser.add_argument('--num_frames', type=int, default=5)
