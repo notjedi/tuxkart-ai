@@ -8,6 +8,7 @@ from stable_baselines3.common.vec_env import SubprocVecEnv
 
 from .utils import get_encoder
 
+
 class PPOBuffer:
     """
     Buffer to save all the (s, a, r, s`) for each step taken.
@@ -27,10 +28,12 @@ class PPOBuffer:
     def reset(self):
         # an optimization would be to store the dict instead of the array
         self.obs = np.zeros((self.buffer_size, self.batch_size, self.zdim), dtype=np.float32)
-        self.actions = np.zeros((self.buffer_size, self.batch_size, len(self.act_dim)), dtype=np.float32)
+        self.actions = np.zeros(
+            (self.buffer_size, self.batch_size, len(self.act_dim)), dtype=np.float32
+        )
         self.rewards = np.zeros((self.buffer_size, self.batch_size), dtype=np.float32)
         self.returns = np.zeros((self.buffer_size, self.batch_size), dtype=np.float32)
-        self.values = np.zeros((self.buffer_size+1, self.batch_size), dtype=np.float32)
+        self.values = np.zeros((self.buffer_size + 1, self.batch_size), dtype=np.float32)
         self.log_probs = np.zeros((self.buffer_size, self.batch_size), dtype=np.float32)
         self.advantage = np.zeros((self.buffer_size, self.batch_size), dtype=np.float32)
 
@@ -63,9 +66,13 @@ class PPOBuffer:
         # advantage = gae = (current reward + essentially a measure of how better the next state is compared to the current state) + (discounted sum of gae)
         self.values[self.ptr] = next_value
         deltas = self.rewards + self.gamma * self.values[1:] - self.values[:-1]
-        self.advantage = self.discounted_sum(deltas, self.gamma * self.lam)     # advantage estimate using GAE
-        self.returns = self.discounted_sum(self.rewards, self.gamma)            # discounted sum of rewards
-        self.advantage = (self.advantage - self.advantage.mean(axis=0)) / (self.advantage.std(axis=0) + 1e-5) # axis 0 because advantage is of shape (buffer_size,
+        self.advantage = self.discounted_sum(
+            deltas, self.gamma * self.lam
+        )  # advantage estimate using GAE
+        self.returns = self.discounted_sum(self.rewards, self.gamma)  # discounted sum of rewards
+        self.advantage = (self.advantage - self.advantage.mean(axis=0)) / (
+            self.advantage.std(axis=0) + 1e-5
+        )  # axis 0 because advantage is of shape (buffer_size,
         # self.returns = self.advantage - self.values[:-1]                      # some use this, some use the above
         del self.values
 
@@ -77,12 +84,18 @@ class PPOBuffer:
 
     def get(self):
         idx = np.random.randint(low=self.num_frames, high=self.ptr)
-        idx_range = slice(idx-self.num_frames, idx)
-        return (self.obs[idx_range], self.actions[idx], self.returns[idx], self.log_probs[idx],
-            self.advantage[idx])
+        idx_range = slice(idx - self.num_frames, idx)
+        return (
+            idx,
+            self.obs[idx_range],
+            self.actions[idx],
+            self.returns[idx],
+            self.log_probs[idx],
+            self.advantage[idx],
+        )
 
 
-class PPO():
+class PPO:
 
     EPOCHS = 2
     GAMMA = 0.9
@@ -111,12 +124,15 @@ class PPO():
     @torch.no_grad()
     def rollout(self):
 
-        self.env.reset()
+        self.vae.eval()
+        self.lstm.eval()
+        obs = torch.from_numpy(np.array(self.env.reset())).unsqueeze(dim=1).to(self.device)
         prev_info = self.info_encoder(self.env.env_method('get_info'))
-        latent_repr = deque(np.zeros((self.num_frames, self.env.num_envs, self.zdim),
-            dtype=np.float32), maxlen=self.num_frames)
-        # TODO
-        # latent_repr.append(self.vae(self.env.env_method('render')))
+        latent_repr = deque(
+            np.zeros((self.num_frames, self.env.num_envs, self.zdim), dtype=np.float32),
+            maxlen=self.num_frames,
+        )
+        latent_repr.append(np.column_stack((self.vae.encode(obs)[0].cpu().numpy(), prev_info)))
         to_numpy = lambda x: x.to(device='cpu').numpy()
 
         for i in trange(self.buffer_size):
@@ -129,10 +145,14 @@ class PPO():
             obs = torch.from_numpy(np.array(obs)).unsqueeze(dim=1).to(self.device)
             prev_info = self.info_encoder(info)
 
-            latent_repr.append(np.column_stack((self.vae.encode(obs)[0].cpu().numpy(),
-                prev_info)))
-            self.buffer.save(latent_repr[-1], to_numpy(action), reward,
-                    to_numpy(value.squeeze(dim=-1)), to_numpy(log_prob))
+            latent_repr.append(np.column_stack((self.vae.encode(obs)[0].cpu().numpy(), prev_info)))
+            self.buffer.save(
+                latent_repr[-1],
+                to_numpy(action),
+                reward,
+                to_numpy(value.squeeze(dim=-1)),
+                to_numpy(log_prob),
+            )
 
             if done.any():
                 break
@@ -156,19 +176,24 @@ class PPO():
 
     def train(self):
 
-        to_cuda = lambda x: torch.from_numpy(x).to(device=torch.device(self.device),
-            dtype=torch.float32) if isinstance(x, np.ndarray) else x
+        self.vae.train()
+        self.lstm.train()
+        to_cuda = (
+            lambda x: torch.from_numpy(x).to(device=torch.device(self.device), dtype=torch.float32)
+            if isinstance(x, np.ndarray)
+            else x
+        )
         if not self.buffer.can_train():
             print("Buffer size is too small")
             return
 
         for epoch in trange(self.EPOCHS):
-            t = tqdm((range(self.buffer.get_ptr())))
+            t = tqdm((range(self.buffer.get_ptr() // self.env.num_envs)))
             for timestep in t:
 
                 self.opt.zero_grad()
-                latent_repr, act, returns, logp_old, adv = map(to_cuda, self.buffer.get())
-                dist, value_new = self.lstm(latent_repr)
+                idx, latent_repr, act, returns, logp_old, adv = map(to_cuda, self.buffer.get())
+                dist, value_new = self.lstm(latent_repr, idx)
                 logp_new = dist.log_prob(act)
 
                 ratio = (logp_new - logp_old).exp()
@@ -176,14 +201,14 @@ class PPO():
                 surr2 = torch.clamp(ratio, 1 + self.EPSILON, 1 - self.EPSILON) * adv
 
                 actor_loss = -torch.min(surr1, surr2).mean()
-                critic_loss = self.CRITIC_DISCOUNT * ((value_new.squeeze() - returns)**2).mean()
+                critic_loss = self.CRITIC_DISCOUNT * ((value_new.squeeze() - returns) ** 2).mean()
                 entropy_loss = self.ENTROPY_BETA * dist.entropy().mean()
 
-                loss = actor_loss + critic_loss + entropy_loss
+                loss = actor_loss + critic_loss - entropy_loss
                 loss.backward()
                 self.opt.step()
 
-                step = epoch * timestep
                 t.set_description(f"loss: {loss}")
-                self.logger.log_train(step, actor_loss.item(), critic_loss.item(),
-                        entropy_loss.item(), loss.item())
+                self.logger.log_train(
+                    actor_loss.item(), critic_loss.item(), entropy_loss.item(), loss.item()
+                )

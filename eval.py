@@ -12,18 +12,23 @@ from stable_baselines3.common.vec_env import SubprocVecEnv
 from src.model import Net
 from src.utils import Logger, make_env, get_encoder, action_to_dict
 
+
 @torch.no_grad()
 def eval(env, vae, lstm, logger, args, log=False, render=False):
 
     assert env.num_envs == 1, 'eval is only supported for num_envs = 1'
-    env.reset()
     vae.eval()
     lstm.eval()
+    lstm.reset(args.eval_steps, 1)
+    obs = torch.from_numpy(np.array(env.reset())).unsqueeze(dim=1).to(args.device)
 
     info_encoder = get_encoder()
     prev_info = info_encoder(env.env_method('get_info'))
-    latent_repr = deque(np.zeros((args.num_frames, env.num_envs, vae.zdim + 4),
-        dtype=np.float32), maxlen=args.num_frames)
+    latent_repr = deque(
+        np.zeros((args.num_frames, env.num_envs, vae.zdim + 4), dtype=np.float32),
+        maxlen=args.num_frames,
+    )
+    latent_repr.append(np.column_stack((vae.encode(obs)[0].cpu().numpy(), prev_info)))
     to_numpy = lambda x: x.to(device='cpu').numpy()
     tot_reward = 0
 
@@ -60,8 +65,14 @@ def main(args):
 
     writer = SummaryWriter(log_dir=args.log_dir)
     logger = Logger(writer)
-    race_config_args = { 'track': args.track, 'kart': args.kart, 'numKarts': args.num_karts,
-            'laps': args.laps, 'reverse': args.reverse, 'difficulty': args.difficulty }
+    race_config_args = {
+        'track': args.track,
+        'kart': args.kart,
+        'numKarts': args.num_karts,
+        'laps': args.laps,
+        'reverse': args.reverse,
+        'difficulty': args.difficulty,
+    }
 
     env = make_env(id)()
     obs_shape, act_shape = env.observation_space.shape, env.action_space.nvec
@@ -77,8 +88,9 @@ def main(args):
     if args.lstm_model_path is not None:
         lstm.load_state_dict(torch.load(args.lstm_model_path))
 
-    env = SubprocVecEnv([make_env(id, args.graphic, race_config_args) for id in range(1)],
-            start_method='spawn')
+    env = SubprocVecEnv(
+        [make_env(id, args.graphic, race_config_args) for id in range(1)], start_method='spawn'
+    )
     reward = eval(env, vae, lstm, logger, args, log=True, render=True)
     print(f'Total rewards: {reward}')
     env.close()
@@ -89,7 +101,9 @@ if __name__ == '__main__':
     from os.path import join
     from src.utils import STK
 
-    parser = argparse.ArgumentParser("Implementation of the PPO algorithm for the SuperTuxKart game")
+    parser = argparse.ArgumentParser(
+        "Implementation of the PPO algorithm for the SuperTuxKart game"
+    )
     parser.add_argument('--laps', type=int, default=1)
     parser.add_argument('--num_karts', type=int, default=5)
     parser.add_argument('--difficulty', type=int, default=1)
@@ -98,15 +112,22 @@ if __name__ == '__main__':
     parser.add_argument('--track', type=str, choices=STK.TRACKS, default=None)
     parser.add_argument('--graphic', type=str, choices=['hd', 'ld', 'sd'], default='hd')
 
-
     parser.add_argument('--zdim', type=int, default=256)
     parser.add_argument('--num_frames', type=int, default=5)
     parser.add_argument('--eval_steps', type=int, default=2500)
     parser.add_argument('--device', type=str, choices=['cpu', 'cuda'], default='cuda')
-    parser.add_argument('--vae_model_path', type=Path, default=None, help='Load VAE model from path.')
-    parser.add_argument('--lstm_model_path', type=Path, default=None, help='Load LSTM model from path.')
-    parser.add_argument('--log_dir', type=Path, default=join(Path(__file__).absolute().parent,
-    'tensorboard'), help='Path to the directory in which the trained models are saved.')
+    parser.add_argument(
+        '--vae_model_path', type=Path, default=None, help='Load VAE model from path.'
+    )
+    parser.add_argument(
+        '--lstm_model_path', type=Path, default=None, help='Load LSTM model from path.'
+    )
+    parser.add_argument(
+        '--log_dir',
+        type=Path,
+        default=join(Path(__file__).absolute().parent, 'tensorboard'),
+        help='Path to the directory in which the trained models are saved.',
+    )
     args = parser.parse_args()
 
     main(args)
