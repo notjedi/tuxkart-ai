@@ -9,7 +9,7 @@ from torchvision import transforms as T
 from gym.spaces import Box, MultiDiscrete
 
 
-class STKAgent():
+class STKAgent:
     """
     SuperTuxKart agent for handling actions and getting state information from the environment.
     The `STKEnv` class passes on the actions to this class for it to handle and gets the current
@@ -97,7 +97,7 @@ class STKAgent():
         self._update_node_idx()
         curr_path_width = self.path_width[self.node_idx][0]
         kart_dist = self._get_kart_dist_from_center()
-        return kart_dist <= curr_path_width/2
+        return kart_dist <= curr_path_width / 2
 
     def _get_velocity(self):
         # returns the magnitude of velocity
@@ -107,7 +107,9 @@ class STKAgent():
         # {acceleration, brake, steer, fire, drift, nitro, rescue}
         # action_space = [2, 2, 3, 2, 2, 2, 2]
         self.currentAction.acceleration = action[0]
-        self.currentAction.brake = bool(max(0, action[1] - action[0])) # only True when acc is not 1
+        self.currentAction.brake = bool(
+            max(0, action[1] - action[0])
+        )  # only True when acc is not 1
         self.currentAction.steer = action[2] - 1
         self.currentAction.fire = bool(action[3])
         self.currentAction.drift = bool(action[4])
@@ -167,7 +169,7 @@ class STKAgent():
             self.path_nodes = np.array(self._compute_lines(self.track.path_nodes))
         return self.image
 
-    def step(self, action = None):
+    def step(self, action=None):
         if self.AI:
             self.race.step()
             info = {}
@@ -186,6 +188,7 @@ class STKAgent():
         self.race.stop()
         del self.race
         pystk.clean()
+
 
 class STKEnv(gym.Env):
     """
@@ -216,9 +219,10 @@ class STKEnv(gym.Env):
         super(STKEnv, self).__init__()
         self.env = env
         self.observation_shape = self.env.observation_shape
-        self.observation_space = Box(low=np.zeros(self.env.observation_shape),
-                                    high=np.full(self.env.observation_shape, 255,
-                                    dtype=np.float32))
+        self.observation_space = Box(
+            low=np.zeros(self.env.observation_shape),
+            high=np.full(self.env.observation_shape, 255, dtype=np.float32),
+        )
 
         # {acceleration, brake, steer, fire, drift, nitro, rescue}
         self.action_space = MultiDiscrete([2, 2, 3, 2, 2, 2])
@@ -243,31 +247,31 @@ class STKEnv(gym.Env):
     def close(self):
         self.env.close()
 
+
 class STKReward(gym.Wrapper):
 
-    FINISH          = 30
-    POSITION        = 10
-    DRIFT           = 3
-    NITRO           = 3
+    FINISH = 30
+    POSITION = 10
+    DRIFT = 3
+    NITRO = 3
     COLLECT_POWERUP = 5
-    VELOCITY        = 3
-    USE_POWERUP     = 2
-    JUMP            = -3
-    BACKWARDS       = -10
-    OUT_OF_TRACK    = -10
-    EARLY_END       = -20
+    VELOCITY = 3
+    USE_POWERUP = 2
+    JUMP = -3
+    BACKWARDS = -10
+    OUT_OF_TRACK = -10
+    EARLY_END = -20
 
     def __init__(self, env: STKEnv):
-        # TODO: should i add fps?
         # TODO: handle rewards for attachments
-        # TODO: add reasons on why env is terminated
         # TODO: rewards for using powerup - only if it hits other karts
         # TODO: change value of USE_POWERUP when accounted for hitting other karts
         super(STKReward, self).__init__(env)
         self.observation_shape = self.env.observation_shape
-        self.observation_space = Box(low=np.zeros(self.observation_shape),
-                                    high=np.full(self.observation_shape, 255,
-                                    dtype=np.float32))
+        self.observation_space = Box(
+            low=np.zeros(self.observation_shape),
+            high=np.full(self.observation_shape, 255, dtype=np.float32),
+        )
         self.reward = 0
         self.prevInfo = None
         self.total_jumps = 0
@@ -314,7 +318,7 @@ class STKReward(gym.Wrapper):
                 info["early_end_reason"] = "Outside track"
 
         # don't go backwards - note that this can also implicitly add -ve rewards
-        reward += (info["overall_distance"] - self.prevInfo["overall_distance"])
+        reward += info["overall_distance"] - self.prevInfo["overall_distance"]
         if info["overall_distance"] <= self.prevInfo["overall_distance"]:
             reward += STKReward.BACKWARDS
             self.no_movement += 1
@@ -351,13 +355,13 @@ class STKReward(gym.Wrapper):
 
 
 class GrayScaleObservation(gym.ObservationWrapper):
-
     def __init__(self, env):
         super().__init__(env)
         self.observation_shape = self.env.observation_shape[:2]
-        self.observation_space = Box(low=np.zeros(self.observation_shape),
-                                    high=np.full(self.observation_shape, 255,
-                                    dtype=np.float32))
+        self.observation_space = Box(
+            low=np.zeros(self.observation_shape),
+            high=np.full(self.observation_shape, 255, dtype=np.float32),
+        )
         self.transform = T.Grayscale()
 
     def permute_orientation(self, observation):
@@ -370,15 +374,15 @@ class GrayScaleObservation(gym.ObservationWrapper):
 
 
 class SkipFrame(gym.Wrapper):
-
     def __init__(self, env, skip):
         """Return only every `skip`-th frame"""
         super().__init__(env)
         self._skip = skip
         self.observation_shape = self.env.observation_shape
-        self.observation_space = Box(low=np.zeros(self.observation_shape),
-                                    high=np.full(self.observation_shape, 255,
-                                    dtype=np.float32))
+        self.observation_space = Box(
+            low=np.zeros(self.observation_shape),
+            high=np.full(self.observation_shape, 255, dtype=np.float32),
+        )
 
     def step(self, action):
         """Repeat action, and sum reward"""

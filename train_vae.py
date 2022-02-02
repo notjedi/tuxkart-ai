@@ -16,13 +16,22 @@ from src.vae.model import ConvVAE, Encoder, Decoder
 
 
 def preprocess_grayscale_images(images):
-    return images/255.0
+    return images / 255.0
 
 
 def collect_data(num_envs, per_env_sample, quality):
     acts = np.array([None for _ in range(num_envs)])
-    env = SubprocVecEnv([make_env(i, quality, { 'difficulty': 3, 'reverse': np.random.choice([True,
-        False]), 'vae': True }) for i in range(num_envs)], start_method='spawn')
+    env = SubprocVecEnv(
+        [
+            make_env(
+                i,
+                quality,
+                {'difficulty': 3, 'reverse': np.random.choice([True, False]), 'vae': True},
+            )
+            for i in range(num_envs)
+        ],
+        start_method='spawn',
+    )
     env.reset()
     obs_shape, sample_prob = env.observation_space.shape, np.clip(np.random.rand(), 0.2, 0.5)
     data = np.zeros((per_env_sample, num_envs) + obs_shape, dtype=np.float32)
@@ -37,20 +46,27 @@ def collect_data(num_envs, per_env_sample, quality):
             break
 
     env.close()
-    return data[:pbar.n].reshape(-1, 1, *obs_shape)
+    return data[: pbar.n].reshape(-1, 1, *obs_shape)
 
 
 @torch.no_grad()
 def eval(vae, loss_fn, logger, beta, device, eval_size, quality):
-    eval_images = torch.from_numpy(preprocess_grayscale_images(collect_data(1, eval_size,
-        quality))).to(device)
+    eval_images = torch.from_numpy(
+        preprocess_grayscale_images(collect_data(1, eval_size, quality))
+    ).to(device)
     recon_images, mu, logvar = vae(eval_images)
 
     recon_loss = loss_fn(eval_images, recon_images, reduction='mean')
     kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
     tot_loss = recon_loss + beta * kl_loss
-    logger.log_vae_eval(recon_loss.item(), kl_loss.item(), tot_loss.item(),
-            eval_images.cpu().numpy(), recon_images.cpu().numpy(), beta)
+    logger.log_vae_eval(
+        recon_loss.item(),
+        kl_loss.item(),
+        tot_loss.item(),
+        eval_images.cpu().numpy(),
+        recon_images.cpu().numpy(),
+        beta,
+    )
 
 
 def main(args):
@@ -60,20 +76,29 @@ def main(args):
     # torch.autograd.set_detect_anomaly(True) # uncomment this line if you get NaN's
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
-    loss_fn_dict = { 'mse': F.mse_loss, 'bce': F.binary_cross_entropy }
+    loss_fn_dict = {'mse': F.mse_loss, 'bce': F.binary_cross_entropy}
     loss_fn = loss_fn_dict[args.loss_fn]
     args.save_dir.mkdir(parents=True, exist_ok=True)
 
     env = make_env(id)()
     obs_shape = env.observation_space.shape
-    obs_shape += (1, ) if len(obs_shape) == 2 else ()
+    obs_shape += (1,) if len(obs_shape) == 2 else ()
     env.close()
 
     # https://arxiv.org/abs/2004.14990
     # https://pytorch.org/vision/master/transforms.html
-    transform = T.RandomApply(transforms=[T.ColorJitter(brightness=0.5, hue=0.3),
-        T.RandomRotation(degrees=(0, 180)), T.RandomCrop(size=(320, 500)), T.RandomHorizontalFlip(),
-        T.Pad(50), T.CenterCrop((320, 500)), T.RandomPerspective(), T.RandomErasing()])
+    transform = T.RandomApply(
+        transforms=[
+            T.ColorJitter(brightness=0.5, hue=0.3),
+            T.RandomRotation(degrees=(0, 180)),
+            T.RandomCrop(size=(320, 500)),
+            T.RandomHorizontalFlip(),
+            T.Pad(50),
+            T.CenterCrop((320, 500)),
+            T.RandomPerspective(),
+            T.RandomErasing(),
+        ]
+    )
     transform = T.Compose([transform, T.Resize(size=obs_shape[:-1])])
 
     vae = ConvVAE(obs_shape, Encoder, Decoder, args.zdim)
@@ -128,7 +153,7 @@ def main(args):
             nn.utils.clip_grad_norm_(vae.parameters(), args.clip)
             optim.step()
 
-            epoch_loss += (tot_loss.detach().cpu().numpy())
+            epoch_loss += tot_loss.detach().cpu().numpy()
             logger.log_vae_train(recon_loss.item(), kl_loss.item(), tot_loss.item(), beta)
             t.set_description(f"Recon-loss: {recon_loss:.4f}, KL-loss: {beta*kl_loss:.4f}")
             del tot_loss, recon_loss, kl_loss, images, recon_images, mu, logvar
@@ -148,7 +173,7 @@ def main(args):
 
         g_bar.update(1)
         if (epoch_loss / epoch_size) < min_loss:
-            min_loss = (epoch_loss / epoch_size)
+            min_loss = epoch_loss / epoch_size
             model_name = f'vae-{args.zdim}-{args.loss_fn}-{g_bar.n}-beta-{beta:.2f}-min'
             torch.save(vae.state_dict(), f'{args.save_dir}/{model_name}.pth')
 
@@ -156,6 +181,7 @@ def main(args):
 if __name__ == '__main__':
     import argparse
     from os.path import join
+
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--graphic', type=str, choices=['hd', 'ld', 'sd'], default='hd')
@@ -176,10 +202,18 @@ if __name__ == '__main__':
     parser.add_argument('--beta_anneal_interval', type=int, default=15)
     parser.add_argument('--loss_fn', type=str, choices=['mse', 'bce'], default='bce')
     parser.add_argument('--device', type=str, choices=['cpu', 'cuda'], default='cuda')
-    parser.add_argument('--log_dir', type=Path, default=join(Path(__file__).absolute().parent,
-    'tensorboard'), help='Path to the directory in which the tensorboard logs are saved.')
-    parser.add_argument('--save_dir', type=Path, default=join(Path(__file__).absolute().parent,
-        'models'), help='Path to the directory in which the trained models are saved.')
+    parser.add_argument(
+        '--log_dir',
+        type=Path,
+        default=join(Path(__file__).absolute().parent, 'tensorboard'),
+        help='Path to the directory in which the tensorboard logs are saved.',
+    )
+    parser.add_argument(
+        '--save_dir',
+        type=Path,
+        default=join(Path(__file__).absolute().parent, 'models'),
+        help='Path to the directory in which the trained models are saved.',
+    )
     args = parser.parse_args()
 
     main(args)

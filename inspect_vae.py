@@ -1,6 +1,7 @@
 import torch
 import matplotlib
 import numpy as np
+
 matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
 
@@ -15,8 +16,17 @@ from src.vae.model import ConvVAE, Encoder, Decoder
 @torch.no_grad()
 def inspect(vae, device, sample_size, quality):
 
-    env = SubprocVecEnv([make_env(i, quality, { 'difficulty': 3, 'reverse': np.random.choice([True,
-        False]), 'vae': True }) for i in range(1)], start_method='spawn')
+    env = SubprocVecEnv(
+        [
+            make_env(
+                i,
+                quality,
+                {'difficulty': 3, 'reverse': np.random.choice([True, False]), 'vae': True},
+            )
+            for i in range(1)
+        ],
+        start_method='spawn',
+    )
     env.reset()
 
     step, obs_shape = 0, env.observation_space.shape
@@ -35,6 +45,7 @@ def inspect(vae, device, sample_size, quality):
     env.close()
     recon_images = vae.reconstruct(torch.from_numpy(images).to(device)).cpu().numpy()
     return images.reshape(-1, *obs_shape), recon_images.reshape(-1, *obs_shape)
+
 
 def plot_continuous(images):
     img_shape = images.shape
@@ -62,7 +73,7 @@ def main(args):
 
     env = make_env(id)()
     obs_shape = env.observation_space.shape
-    obs_shape += (1, ) if len(obs_shape) == 2 else ()
+    obs_shape += (1,) if len(obs_shape) == 2 else ()
     env.close()
 
     vae = ConvVAE(obs_shape, Encoder, Decoder, args.zdim)
@@ -81,6 +92,7 @@ def main(args):
 if __name__ == '__main__':
     import argparse
     from os.path import join
+
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--zdim', type=float, default=256)

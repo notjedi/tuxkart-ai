@@ -59,8 +59,15 @@ def test_ppo():
     lstm = Net(ZDIM + 4, act_shape, NUM_ENVS)
     lstm.to(DEVICE)
 
-    buf_args = { 'buffer_size': BUFFER_SIZE, 'batch_size': NUM_ENVS, 'zdim': ZDIM + 4,
-            'act_dim': act_shape, 'num_frames': NUM_FRAMES, 'gamma': PPO.GAMMA, 'lam': PPO.LAMBDA }
+    buf_args = {
+        'buffer_size': BUFFER_SIZE,
+        'batch_size': NUM_ENVS,
+        'zdim': ZDIM + 4,
+        'act_dim': act_shape,
+        'num_frames': NUM_FRAMES,
+        'gamma': PPO.GAMMA,
+        'lam': PPO.LAMBDA,
+    }
     optimizer = optim.Adam(lstm.parameters(), lr=LR)
     writer = SummaryWriter('/tmp/tensorboard')
     logger = Logger(writer)
@@ -81,8 +88,9 @@ def test_vae_model():
     OBS_DIM = (600, 400, 1)
     DEVICE, BATCH_SIZE = 'cuda', 8
 
-    rand_input = torch.randint(0, 255, (BATCH_SIZE, OBS_DIM[-1], *OBS_DIM[:-1]),
-            device=DEVICE, dtype=torch.float32)
+    rand_input = torch.randint(
+        0, 255, (BATCH_SIZE, OBS_DIM[-1], *OBS_DIM[:-1]), device=DEVICE, dtype=torch.float32
+    )
     vae = ConvVAE(OBS_DIM, Encoder, Decoder, 128)
     vae.to(DEVICE)
 
