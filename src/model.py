@@ -7,15 +7,15 @@ from torch.distributions import Categorical
 
 
 # https://discuss.pytorch.org/t/encounter-the-runtimeerror-one-of-the-variables-needed-for-gradient-computation-has-been-modified-by-an-inplace-operation/836/5
-class MultiCategorical():
-
+class MultiCategorical:
     def __init__(self, action_shape):
         self.action_shape = tuple(action_shape)
         self.dist = None
 
     def update_logits(self, logits):
-        self.dist = [Categorical(logits=split) for split in torch.split(logits,
-            self.action_shape, dim=1)]
+        self.dist = [
+            Categorical(logits=split) for split in torch.split(logits, self.action_shape, dim=1)
+        ]
         return self
 
     def get_actions(self, logits=None, deterministic=False) -> torch.Tensor:
@@ -27,8 +27,13 @@ class MultiCategorical():
         return self.sample()
 
     def log_prob(self, actions) -> torch.Tensor:
-        return torch.stack([dist.log_prob(action) for dist, action in zip(self.dist,
-            torch.unbind(actions, dim=1))], dim=1).sum(dim=1)
+        return torch.stack(
+            [
+                dist.log_prob(action)
+                for dist, action in zip(self.dist, torch.unbind(actions, dim=1))
+            ],
+            dim=1,
+        ).sum(dim=1)
 
     def entropy(self) -> torch.Tensor:
         return torch.stack([dist.entropy() for dist in self.dist], dim=1).sum(dim=1)
@@ -55,9 +60,9 @@ class Actor(nn.Module):
         super(Actor, self).__init__()
 
         self.actor = nn.Sequential(
-            nn.Linear(latent_shape, latent_shape//2),
+            nn.Linear(latent_shape, latent_shape // 2),
             nn.Tanh(),
-            nn.Linear(latent_shape//2, np.sum(action_shape))
+            nn.Linear(latent_shape // 2, np.sum(action_shape)),
         )
         self.dist = MultiCategorical(action_shape)
 
@@ -76,9 +81,7 @@ class Critic(nn.Module):
         super(Critic, self).__init__()
 
         self.critic = nn.Sequential(
-            nn.Linear(latent_shape, latent_shape//2),
-            nn.Tanh(),
-            nn.Linear(latent_shape//2, 1)
+            nn.Linear(latent_shape, latent_shape // 2), nn.Tanh(), nn.Linear(latent_shape // 2, 1)
         )
 
     def forward(self, inputs):
@@ -86,27 +89,34 @@ class Critic(nn.Module):
 
 
 class LSTM(nn.Module):
-
-    def __init__(self, input_size, hidden_size, num_layers=1, batch_size=8):
+    def __init__(self, input_size, hidden_size, num_layers=1, buffer_size=1, batch_size=8):
         super(LSTM, self).__init__()
-        self.device = torch.device('cuda')
+        self.device = 'cuda'
         self.lstm = nn.LSTM(input_size, hidden_size, num_layers)
-        self.reset(batch_size)
+        self.reset(buffer_size, batch_size)
 
-    def reset(self, batch_size=8):
-        self.h0 = torch.zeros((self.lstm.num_layers, batch_size, self.lstm.hidden_size),
-                dtype=torch.float32, device=self.device)
-        self.c0 = torch.zeros((self.lstm.num_layers, batch_size, self.lstm.hidden_size),
-                dtype=torch.float32, device=self.device)
+    def reset(self, buffer_size, batch_size):
+        self.ptr = 0
+        self.buffer_size = buffer_size
+        device = 'cpu' if batch_size > 1 else 'cuda'
+        self.h0 = torch.zeros(
+            (buffer_size, self.lstm.num_layers, batch_size, self.lstm.hidden_size),
+            dtype=torch.float32,
+            device=device,
+        )
+        self.c0 = torch.zeros(
+            (buffer_size, self.lstm.num_layers, batch_size, self.lstm.hidden_size),
+            dtype=torch.float32,
+            device=device,
+        )
 
-    def forward(self, input):
-        if self.device != input.device:
-            self.device = input.device
-            self.h0.to(self.device)
-            self.c0.to(self.device)
-
-        out, (self.h0, self.c0) = self.lstm(input, (self.h0, self.c0))
-        self.h0, self.c0 = self.h0.detach(), self.c0.detach()
+    def forward(self, input, idx):
+        out, (h0, c0) = self.lstm(
+            input, (self.h0[idx].to(self.device), self.c0[idx].to(self.device))
+        )
+        if not self.training:
+            self.h0[self.ptr], self.c0[self.ptr] = (h0.detach().cpu(), c0.detach().cpu())
+            self.ptr = min(self.ptr + 1, self.buffer_size - 1)
         return out
 
 
@@ -133,6 +143,9 @@ class Net(nn.Module):
         self.critic = Critic(hidden_size)
         self._initialize_weights()
 
+    def reset(self, buffer_size, batch_size):
+        self.lstm.reset(buffer_size, batch_size)
+
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
@@ -140,6 +153,6 @@ class Net(nn.Module):
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
 
-    def forward(self, input: torch.Tensor):
-        input = self.lstm(input)[-1]
+    def forward(self, input: torch.Tensor, idx: int = -1):
+        input = self.lstm(input, idx)[-1]
         return self.actor(input), self.critic(input)
