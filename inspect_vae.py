@@ -1,16 +1,15 @@
 import torch
 import matplotlib
 import numpy as np
-
-matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
 
 from tqdm import tqdm
-from pathlib import Path
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
 from src.utils import make_env
 from src.vae.model import ConvVAE, Encoder, Decoder
+
+matplotlib.use('Qt5Agg')
 
 
 @torch.no_grad()
@@ -57,7 +56,7 @@ def plot_continuous(images):
 
 
 def plot(images):
-    subplot_size, i = images.shape[0] // 2, 0
+    subplot_size = images.shape[0] // 2
     fig, axs = plt.subplots(2, subplot_size, figsize=(40, 40))
     axs = axs.flatten()
     for img, ax in zip(images, axs):
@@ -91,7 +90,7 @@ def main(args):
 
 if __name__ == '__main__':
     import argparse
-    from os.path import join
+    from pathlib import Path
 
     parser = argparse.ArgumentParser()
 

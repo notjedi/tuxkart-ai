@@ -1,4 +1,3 @@
-import os
 import torch
 import numpy as np
 
@@ -11,7 +10,7 @@ from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
-from src.utils import STK, make_env, Logger
+from src.utils import make_env, Logger
 from src.vae.model import ConvVAE, Encoder, Decoder
 
 
@@ -89,12 +88,8 @@ def main(args):
     # https://pytorch.org/vision/master/transforms.html
     transform = T.RandomApply(
         transforms=[
-            T.ColorJitter(brightness=0.5, hue=0.3),
-            T.RandomRotation(degrees=(0, 180)),
-            T.RandomCrop(size=(320, 500)),
+            T.RandomRotation(degrees=(0, 360)),
             T.RandomHorizontalFlip(),
-            T.Pad(50),
-            T.CenterCrop((320, 500)),
             T.RandomPerspective(),
             T.RandomErasing(),
         ]

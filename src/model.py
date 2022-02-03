@@ -2,7 +2,6 @@ import torch
 import numpy as np
 
 from torch import nn
-from torch.nn import functional as F
 from torch.distributions import Categorical
 
 
@@ -17,14 +16,6 @@ class MultiCategorical:
             Categorical(logits=split) for split in torch.split(logits, self.action_shape, dim=1)
         ]
         return self
-
-    def get_actions(self, logits=None, deterministic=False) -> torch.Tensor:
-        if logits is not None:
-            self.update_logits(logits)
-        assert self.dist is not None, "Distribution is not initialized, try passing in logits"
-        if deterministic:
-            return self.mode()
-        return self.sample()
 
     def log_prob(self, actions) -> torch.Tensor:
         return torch.stack(

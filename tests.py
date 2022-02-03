@@ -23,7 +23,6 @@ def test_model():
     import torch
     from torchinfo import summary
     from src.model import Net
-    from src.vae.model import ConvVAE, Encoder, Decoder
 
     ACT_DIM = (2, 2, 3, 2, 2, 2)
     DEVICE, BATCH_SIZE, ZDIM, NUM_FRAMES = torch.device('cuda'), 8, 256, 5
@@ -46,8 +45,7 @@ def test_ppo():
 
     from src.ppo import PPO
     from src.model import Net
-    from src.env import STKEnv
-    from src.utils import STK, Logger, make_env
+    from src.utils import Logger, make_env
     from src.vae.model import ConvVAE, Encoder, Decoder
 
     DEVICE, BUFFER_SIZE, NUM_FRAMES, NUM_ENVS, LR, ZDIM = 'cuda', 8, 5, 1, 1e-3, 256
@@ -60,8 +58,8 @@ def test_ppo():
     lstm.to(DEVICE)
 
     buf_args = {
-        'buffer_size': BUFFER_SIZE,
-        'batch_size': NUM_ENVS,
+        'buf_size': BUFFER_SIZE,
+        'num_envs': NUM_ENVS,
         'zdim': ZDIM + 4,
         'act_dim': act_shape,
         'num_frames': NUM_FRAMES,
@@ -97,6 +95,7 @@ def test_vae_model():
     # summary(vae, input_data=rand_input, verbose=1)
     recons_image_sto = vae(rand_input)
     recons_image_det = vae(rand_input, mean=True)
+    # print(recons_image_sto.shape, recons_image_det.shape)
     print("src/vae/model.py test successful")
 
 
