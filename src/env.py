@@ -3,7 +3,6 @@ import torch
 import pystk
 import numpy as np
 
-from random import choice
 from sympy import Point3D, Line3D
 from torchvision import transforms as T
 from gym.spaces import Box, MultiDiscrete
@@ -28,6 +27,7 @@ class STKAgent:
         self.observation_shape = (graphicConfig.screen_height, graphicConfig.screen_width, 3)
         self.graphicConfig = graphicConfig
         self.race = pystk.Race(raceConfig)
+        self.reverse = raceConfig.reverse
         self.track = pystk.Track()
         self.state = pystk.WorldState()
         self.currentAction = pystk.Action()
@@ -54,15 +54,18 @@ class STKAgent:
         return [Line3D(*node) for node in nodes]
 
     def _update_node_idx(self):
-        dist_down_track = self.playerKart.distance_down_track
+        dist_down_track = (
+            0
+            if self.reverse and self.playerKart.overall_distance <= 0
+            else self.playerKart.distance_down_track
+        )
         path_dist = self.path_distance[self.node_idx]
-        if not (path_dist[0] <= dist_down_track <= path_dist[1]):
-            while not (path_dist[0] <= dist_down_track <= path_dist[1]):
-                if dist_down_track < path_dist[0]:
-                    self.node_idx -= 1
-                elif dist_down_track > path_dist[1]:
-                    self.node_idx += 1
-                path_dist = self.path_distance[self.node_idx]
+        while not (path_dist[0] <= dist_down_track <= path_dist[1]):
+            if dist_down_track < path_dist[0]:
+                self.node_idx -= 1
+            elif dist_down_track > path_dist[1]:
+                self.node_idx += 1
+            path_dist = self.path_distance[self.node_idx]
 
     def _get_jumping(self) -> bool:
         return self.playerKart.jumping
@@ -163,21 +166,24 @@ class STKAgent:
             self.image = np.array(self.race.render_data[0].image, dtype=np.float32)
 
         self.playerKart = self.state.players[0].kart
-        if not self.AI:
-            self.path_width = np.array(self.track.path_width)
-            self.path_distance = np.array(self.track.path_distance)
-            self.path_nodes = np.array(self._compute_lines(self.track.path_nodes))
+        self.path_width = np.array(self.track.path_width)
+        self.path_distance = np.array(
+            sorted(self.track.path_distance[::-1], key=lambda x: x[0])
+            if self.reverse
+            else self.track.path_distance
+        )
+        self.path_nodes = np.array(self._compute_lines(self.track.path_nodes))
+        self._update_node_idx()
         return self.image
 
     def step(self, action=None):
         if self.AI:
             self.race.step()
-            info = {}
         else:
             self._update_action(action)
             self.race.step(self.currentAction)
-            info = self.get_info()
 
+        info = self.get_info()
         self.state.update()
         self.track.update()
         self.image = np.array(self.race.render_data[0].image, dtype=np.float32)
@@ -250,17 +256,17 @@ class STKEnv(gym.Env):
 
 class STKReward(gym.Wrapper):
 
-    FINISH = 30
-    POSITION = 10
-    DRIFT = 3
-    NITRO = 3
-    COLLECT_POWERUP = 5
-    VELOCITY = 3
-    USE_POWERUP = 2
-    JUMP = -3
-    BACKWARDS = -10
-    OUT_OF_TRACK = -10
-    EARLY_END = -20
+    FINISH = 1
+    POSITION = 0.5
+    VELOCITY = 0.4
+    COLLECT_POWERUP = 0.2
+    USE_POWERUP = 0.2
+    DRIFT = 0.2
+    NITRO = 0.2
+    EARLY_END = -1
+    OUT_OF_TRACK = -0.4
+    BACKWARDS = -0.7
+    JUMP = -0.3
 
     def __init__(self, env: STKEnv):
         # TODO: handle rewards for attachments
@@ -273,31 +279,30 @@ class STKReward(gym.Wrapper):
             high=np.full(self.observation_shape, 255, dtype=np.float32),
         )
         self.reward = 0
+        self.backward = 0
         self.prevInfo = None
         self.total_jumps = 0
-        self.no_movement = 0
-        self.jump_threshold = 10
+        self.jump_threshold = 20
         self.out_of_track_count = 0
-        self.no_movement_threshold = 30
-        self.out_of_track_threshold = 15
+        self.backward_threshold = 50
+        self.out_of_track_threshold = 50
 
     def _get_reward(self, action, info):
 
-        reward = -1
+        reward = 0
         if self.prevInfo is None:
             self.prevInfo = info
 
         #  0             1      2      3     4      5      6
         # {acceleration, brake, steer, fire, drift, nitro, rescue}
         # [2,            2,     3,     2,    2,     2,     2]   # action_space
-        if action[5] and info["nitro"]:
-            reward += STKReward.NITRO
-        if action[4] and info["velocity"] > 10:
-            reward += STKReward.DRIFT
-        # if action[6]:
-        #     reward += STKReward.RESCUE
-        if action[3] and info["powerup"].value:
-            reward += STKReward.USE_POWERUP
+        if action is not None:
+            if action[5] and info["nitro"]:
+                reward += STKReward.NITRO
+            if action[4] and info["velocity"] > 10:
+                reward += STKReward.DRIFT
+            if action[3] and info["powerup"].value:
+                reward += STKReward.USE_POWERUP
 
         if info["done"]:
             reward += STKReward.FINISH
@@ -307,7 +312,8 @@ class STKReward(gym.Wrapper):
         elif info["position"] > self.prevInfo["position"]:
             reward -= STKReward.POSITION
 
-        if info["velocity"] > (self.prevInfo["velocity"] + 1):
+        # agent might purposely slow down and speed up again to get rewards, so add the or term
+        if info["velocity"] > (self.prevInfo["velocity"] + 1) or info["velocity"] > 29:
             reward += STKReward.VELOCITY
 
         if not info["is_inside_track"]:
@@ -317,15 +323,15 @@ class STKReward(gym.Wrapper):
                 info["early_end"] = True
                 info["early_end_reason"] = "Outside track"
 
-        # don't go backwards - note that this can also implicitly add -ve rewards
-        reward += info["overall_distance"] - self.prevInfo["overall_distance"]
-        if info["overall_distance"] <= self.prevInfo["overall_distance"]:
+        if info["overall_distance"] < self.prevInfo["overall_distance"]:
             reward += STKReward.BACKWARDS
-            self.no_movement += 1
+            self.backward += 1
 
-        if self.no_movement >= self.no_movement_threshold:
-            info["early_end"] = True
-            info["early_end_reason"] = "No movement"
+        delta_dist = info["overall_distance"] - self.prevInfo["overall_distance"]
+        if delta_dist > 4:
+            reward += (delta_dist) / 10
+        else:
+            reward += max(0, delta_dist)
 
         if info["powerup"].value and not self.prevInfo["powerup"].value:
             reward += STKReward.COLLECT_POWERUP
@@ -333,6 +339,10 @@ class STKReward(gym.Wrapper):
         if info["jumping"] and not self.prevInfo["jumping"]:
             reward += STKReward.JUMP
             self.total_jumps += 1
+
+        if self.backward >= self.backward_threshold:
+            info["early_end"] = True
+            info["early_end_reason"] = "Going backwards"
 
         if self.total_jumps > self.jump_threshold:
             info["early_end"] = True
@@ -393,4 +403,4 @@ class SkipFrame(gym.Wrapper):
             total_reward += reward
             if done:
                 break
-        return obs, total_reward, done, info
+        return obs, total_reward / self._skip, done, info

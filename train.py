@@ -21,7 +21,7 @@ def eval(vae, lstm, logger, args):
 
     try:
         env = SubprocVecEnv([make_env(id) for id in range(1)], start_method='spawn')
-        tot_reward = np.sum(eval(env, vae, lstm, logger, args)) / args.num_envs
+        tot_reward = np.sum(eval(env, vae, lstm, logger, args, log=True)) / args.num_envs
         env.close()
     except EOFError as e:
         print(e)
@@ -38,6 +38,13 @@ def main(args):
 
     env = make_env(id)()
     obs_shape, act_shape = env.observation_space.shape, env.action_space.nvec
+    buf_args = {
+        'buf_size': args.buffer_size,
+        'num_envs': args.num_envs,
+        'zdim': args.zdim + 4,
+        'act_dim': env.action_space.nvec,
+        'num_frames': args.num_frames,
+    }
     env.close()
 
     vae = ConvVAE(obs_shape, Encoder, Decoder, args.zdim)
@@ -47,13 +54,12 @@ def main(args):
 
     if args.vae_model_path is not None:
         print(f"loading VAE model from {args.vae_model_path}")
-        vae.load_state_dict(torch.load(args.vae_model_path))
+        vae.load_state_dict(torch.load(args.vae_model_path), strict=False)
 
     if args.lstm_model_path is not None:
         print(f"loading LSTM model from {args.lstm_model_path}")
         lstm.load_state_dict(torch.load(args.lstm_model_path))
 
-    race_config_args = {'track': args.track, 'kart': args.kart}
     prev_reward, curr_reward = -float('inf'), 0
     optimizer = optim.Adam(lstm.parameters(), lr=args.lr, eps=1e-5)
     writer = SummaryWriter(log_dir=args.log_dir)
@@ -61,17 +67,15 @@ def main(args):
 
     for i in trange(args.num_global_steps):
         torch.cuda.empty_cache()
+        race_config_args = {
+            'track': args.track,
+            'kart': args.kart,
+            'reverse': np.random.choice([True, False]),
+        }
         env = SubprocVecEnv(
             [make_env(id, args.graphic, race_config_args) for id in range(args.num_envs)],
             start_method='spawn',
         )
-        buf_args = {
-            'buffer_size': args.buffer_size,
-            'batch_size': args.num_envs,
-            'zdim': vae.zdim + 4,
-            'act_dim': env.action_space.nvec,
-            'num_frames': args.num_frames,
-        }
         lstm.reset(args.buffer_size, args.num_envs)
         ppo = PPO(env, vae, lstm, optimizer, logger, args.device, **buf_args)
 
@@ -124,9 +128,9 @@ if __name__ == '__main__':
     parser.add_argument('--buffer_size', type=int, default=512)
 
     # train args
-    parser.add_argument('--num_envs', type=int, default=5)
+    parser.add_argument('--num_envs', type=int, default=7)
     parser.add_argument('--eval_steps', type=int, default=512)
-    parser.add_argument('--eval_interval', type=int, default=10)
+    parser.add_argument('--eval_interval', type=int, default=20)
     parser.add_argument('--num_global_steps', type=int, default=5000)
     parser.add_argument('--device', type=str, choices=['cpu', 'cuda'], default='cuda')
     parser.add_argument(
