@@ -264,6 +264,7 @@ class STKReward(gym.Wrapper):
     DRIFT = 0.2
     NITRO = 0.2
     EARLY_END = -1
+    NO_MOVEMENT = -0.2
     OUT_OF_TRACK = -0.4
     BACKWARDS = -0.7
     JUMP = -0.3
@@ -282,14 +283,16 @@ class STKReward(gym.Wrapper):
         self.backward = 0
         self.prevInfo = None
         self.total_jumps = 0
+        self.no_movement = 0
         self.jump_threshold = 20
         self.out_of_track_count = 0
         self.backward_threshold = 50
+        self.no_movement_threshold = 5
         self.out_of_track_threshold = 50
 
     def _get_reward(self, action, info):
 
-        reward = 0
+        reward = -0.02
         if self.prevInfo is None:
             self.prevInfo = info
 
@@ -323,15 +326,20 @@ class STKReward(gym.Wrapper):
                 info["early_end"] = True
                 info["early_end_reason"] = "Outside track"
 
-        if info["overall_distance"] < self.prevInfo["overall_distance"]:
+        delta_dist = info["overall_distance"] - self.prevInfo["overall_distance"]
+        if delta_dist < 0:
             reward += STKReward.BACKWARDS
             self.backward += 1
-
-        delta_dist = info["overall_distance"] - self.prevInfo["overall_distance"]
-        if delta_dist > 4:
+        elif delta_dist == 0:
+            self.no_movement += 1
+        elif delta_dist > 5:
             reward += (delta_dist) / 10
         else:
             reward += max(0, delta_dist)
+
+        if self.no_movement >= self.no_movement_threshold:
+            reward += STKReward.NO_MOVEMENT
+            self.no_movement = 0
 
         if info["powerup"].value and not self.prevInfo["powerup"].value:
             reward += STKReward.COLLECT_POWERUP

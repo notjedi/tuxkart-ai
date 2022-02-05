@@ -91,14 +91,16 @@ def main(args):
     lstm.to(args.device)
 
     if args.vae_model_path is not None:
-        vae.load_state_dict(torch.load(args.vae_model_path))
+        vae.load_state_dict(torch.load(args.vae_model_path), strict=False)
     if args.lstm_model_path is not None:
         lstm.load_state_dict(torch.load(args.lstm_model_path))
 
     env = SubprocVecEnv(
         [make_env(id, args.graphic, race_config_args) for id in range(1)], start_method='spawn'
     )
-    reward = eval(env, vae, lstm, logger, args, ai=args.self_control, log=False, render=True)
+    reward = eval(
+        env, vae, lstm, logger, args, self_control=args.self_control, log=False, render=True
+    )
     print(f'Total rewards: {reward}')
     env.close()
 

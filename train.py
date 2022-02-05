@@ -100,7 +100,7 @@ def main(args):
                         saving model to path model/lstm-{i}.pth'
                 )
                 prev_reward = curr_reward
-                torch.save(lstm.state_dict(), f'{args.save_dir}/lstm-{i}.pth')
+                torch.save(lstm.state_dict(), f'{args.save_dir}/lstm-{i}-{curr_reward:.2f}.pth')
 
 
 if __name__ == '__main__':

@@ -1,62 +1,39 @@
 # tuxkart-ai
 
 
-### TODO:
-
-- [ ] keep a moving finish line?
-- [ ] use stackedvec - stable_baselines_3
-- [ ] train VAE on RGB images instead of using grayscale image as model input
-- [ ] RNN instead of using frames?
-- [ ] various research papers such as img augmentation, curl, etc - check phone
-- [ ] another regularization step (maybe) would be to take `x` number of actions randomly, like not
-      sample from the dist but totally random steps and have the model recover from that - so as to see
-      how the model recovers from that state?
-
-
-### Model arch:
+LSTM model arch: (for RL agent)
 
 ```
 ==========================================================================================
 Layer (type:depth-idx)                   Output Shape              Param #
 ==========================================================================================
 Net                                      --                        --
-├─Sequential: 1-1                        [8, 128, 74, 49]          --
-│    └─Conv2d: 2-1                       [8, 128, 149, 99]         64,128
-│    └─Tanh: 2-2                         [8, 128, 149, 99]         --
-│    └─BatchNorm2d: 2-3                  [8, 128, 149, 99]         256
-│    └─ResNet: 2-4                       [8, 128, 149, 99]         --
-│    │    └─Sequential: 3-1              [8, 128, 149, 99]         525,056
-│    └─Conv2d: 2-5                       [8, 128, 74, 49]          262,272
-│    └─Tanh: 2-6                         [8, 128, 74, 49]          --
-│    └─BatchNorm2d: 2-7                  [8, 128, 74, 49]          256
-│    └─ResNet: 2-8                       [8, 128, 74, 49]          --
-│    │    └─Sequential: 3-2              [8, 128, 74, 49]          525,056
+├─LSTM: 1-1                              [5, 8, 256]               --
+│    └─LSTM: 2-1                         [5, 8, 256]               1,052,672
 ├─Actor: 1-2                             [8, 13]                   --
-│    └─Sequential: 2-9                   [8, 13]                   --
-│    │    └─Conv2d: 3-3                  [8, 1, 74, 49]            1,153
-│    │    └─Tanh: 3-4                    [8, 1, 74, 49]            --
-│    │    └─Flatten: 3-5                 [8, 3626]                 --
-│    │    └─Linear: 3-6                  [8, 13]                   47,151
+│    └─Sequential: 2-2                   [8, 13]                   --
+│    │    └─Linear: 3-1                  [8, 128]                  32,896
+│    │    └─Tanh: 3-2                    [8, 128]                  --
+│    │    └─Linear: 3-3                  [8, 13]                   1,677
 ├─Critic: 1-3                            [8, 1]                    --
-│    └─Sequential: 2-10                  [8, 1]                    --
-│    │    └─Conv2d: 3-7                  [8, 1, 74, 49]            1,153
-│    │    └─Tanh: 3-8                    [8, 1, 74, 49]            --
-│    │    └─Flatten: 3-9                 [8, 3626]                 --
-│    │    └─Linear: 3-10                 [8, 1]                    3,627
+│    └─Sequential: 2-3                   [8, 1]                    --
+│    │    └─Linear: 3-4                  [8, 128]                  32,896
+│    │    └─Tanh: 3-5                    [8, 128]                  --
+│    │    └─Linear: 3-6                  [8, 1]                    129
 ==========================================================================================
-Total params: 1,430,108
-Trainable params: 1,430,108
+Total params: 1,120,270
+Trainable params: 1,120,270
 Non-trainable params: 0
-Total mult-adds (G): 93.14
+Total mult-adds (M): 42.65
 ==========================================================================================
-Input size (MB): 38.40
-Forward/backward pass size (MB): 909.84
-Params size (MB): 5.72
-Estimated Total Size (MB): 953.96
+Input size (MB): 0.04
+Forward/backward pass size (MB): 0.10
+Params size (MB): 4.48
+Estimated Total Size (MB): 4.62
 ==========================================================================================
 ```
 
-### VAE model arch
+### VAE model arch: (for representation learning)
 
 ```
 ==========================================================================================
@@ -100,11 +77,20 @@ Estimated Total Size (MB): 1849.57
 ==========================================================================================
 ```
 
-Observations:
+### TODO:
+
+- [ ] keep a moving finish line?
+- [ ] clean up encoding infos
+- [ ] use stackedvec - stable_baselines_3
+- [ ] train VAE on RGB images instead of using grayscale image as model input
+- [ ] another regularization step (maybe) would be to take `x` number of actions randomly, like not
+      sample from the dist but totally random steps and have the model recover from that - so as to see
+      how the model recovers from that state?
+
+### Observations:
 
 * Half Precision doesn't work
 * Training on RGB image absolutely does nothing
-
 
 ### References
 
@@ -131,3 +117,5 @@ Observations:
 - https://stats.stackexchange.com/questions/394582/why-is-binary-cross-entropy-or-log-loss-used-in-autoencoders-for-non-binary-da
 - https://stats.stackexchange.com/questions/370179/why-binary-crossentropy-can-be-used-as-the-loss-function-in-autoencoders
 - https://stackoverflow.com/questions/52441877/how-does-binary-cross-entropy-loss-work-on-autoencoders/52443301#52443301
+- https://towardsdatascience.com/what-a-disentangled-net-we-weave-representation-learning-in-vaes-pt-1-9e5dbc205bd1
+- https://towardsdatascience.com/with-great-power-comes-poor-latent-codes-representation-learning-in-vaes-pt-2-57403690e92b
