@@ -26,6 +26,8 @@ class PPOBuffer:
         self.lam = lam
         self.calculated_gae = False
         self.reset()
+        self.test_discounted_sum()
+        self.test_gae()
 
     def reset(self):
         self.obs = np.zeros((self.buf_size, self.num_envs, self.zdim), dtype=np.float32)
@@ -55,6 +57,45 @@ class PPOBuffer:
              [y0 + discount * y1 + discount^2 * y2, y1 + discount * y2, y2]]
         """
         return np.flip(lfilter([1], [1, -discount], np.flip(x, axis=0), axis=0), axis=0)
+
+    def test_discounted_sum(self):
+        test_vals = np.random.rand(20, 5)
+        calc_vals = np.zeros((20, 5))
+        buf_size = test_vals.shape[0] - 1
+        actual = self.discounted_sum(test_vals, self.gamma)
+
+        for batch in range(test_vals.shape[-1]):
+            prev_val = 0
+            sums = []
+            for i, val in enumerate(reversed(test_vals[:, batch])):
+                idx = buf_size - i
+                calc_vals[idx][batch] = val + (self.gamma * prev_val)
+                prev_val = calc_vals[idx][batch]
+
+        np.testing.assert_allclose(actual, calc_vals)
+        print('Test for discounted sums successful')
+
+    def test_gae(self):
+
+        rews = np.random.rand(10, 5)
+        vals = np.random.rand(11, 5)
+        advs = np.zeros((10, 5))
+        dels = np.zeros((10, 5))
+
+        actual_dels = rews + self.gamma * vals[1:] - vals[:-1]
+        actual_advs = self.discounted_sum(actual_dels, self.gamma * self.lam)
+
+        for batch in range(rews.shape[-1]):
+            gae = 0
+            for step in reversed(range(len(rews[:, batch]))):
+                delta = rews[step][batch] + self.gamma * vals[step+1][batch] - vals[step][batch]
+                gae = delta + self.gamma * self.lam * gae
+                dels[step][batch] = delta
+                advs[step][batch] = gae
+
+        np.testing.assert_allclose(advs, actual_advs)
+        np.testing.assert_allclose(dels, actual_dels)
+        print('Test for computing GAE successful')
 
     def compute_gae(self, next_value):
         # https://www.reddit.com/r/reinforcementlearning/comments/s18hjr/comment/hs7i2pa
@@ -124,7 +165,7 @@ class PPO:
         self.device = device
         self.logger = logger
         self.info_encoder = get_encoder()
-        buffer_args['gamma'], buffer_args['lam'] = self.GAMMA, self.LAMBDA
+        buffer_args['gamma'], buffer_args['lam'] = PPO.GAMMA, PPO.LAMBDA
         self.buffer = PPOBuffer(**buffer_args)
         self.num_frames = buffer_args['num_frames']
         self.zdim, self.buf_size = buffer_args['zdim'], buffer_args['buf_size']
@@ -135,13 +176,13 @@ class PPO:
         self.vae.eval()
         self.lstm.eval()
         obs = torch.from_numpy(np.array(self.env.reset())).unsqueeze(dim=1).to(self.device)
-        prev_info = self.info_encoder(self.env.env_method('get_info'))
+        info = self.info_encoder(self.env.env_method('get_info'))
         latent_repr = deque(
             np.zeros((self.num_frames, self.env.num_envs, self.zdim), dtype=np.float32),
             maxlen=self.num_frames,
         )
         step = 0
-        latent_repr.append(np.column_stack((self.vae.encode(obs)[0].cpu().numpy(), prev_info)))
+        latent_repr.append(np.column_stack((self.vae.encode(obs)[0].cpu().numpy(), info)))
 
         def to_numpy(x):
             return x.to(device='cpu').numpy()
@@ -154,9 +195,9 @@ class PPO:
 
             obs, reward, done, info = self.env.step(to_numpy(action))
             obs = torch.from_numpy(np.array(obs)).unsqueeze(dim=1).to(self.device)
-            prev_info = self.info_encoder(info)
+            info = self.info_encoder(info)
 
-            latent_repr.append(np.column_stack((self.vae.encode(obs)[0].cpu().numpy(), prev_info)))
+            latent_repr.append(np.column_stack((self.vae.encode(obs)[0].cpu().numpy(), info)))
             self.buffer.save(
                 latent_repr[-1],
                 to_numpy(action),
@@ -171,8 +212,8 @@ class PPO:
 
         print('-------------------------------------------------------------')
         print(f'Trajectory cut off at {step+1} time steps')
+        race_infos = np.array(self.env.env_method('get_info'))
         env_infos = np.array(self.env.env_method('get_env_info'))
-        race_infos = np.array(info)
 
         for env_info, race_info in zip(env_infos, race_infos):
             for key, value in env_info.items():
@@ -201,7 +242,7 @@ class PPO:
             print("Buffer size is too small")
             return
 
-        for epoch in trange(self.EPOCHS):
+        for epoch in trange(PPO.EPOCHS):
             t = tqdm((range(self.buffer.get_ptr() // self.env.num_envs)))
             for timestep in t:
 
@@ -212,11 +253,11 @@ class PPO:
 
                 ratio = (logp_new - logp_old).exp()
                 surr1 = ratio * adv
-                surr2 = torch.clamp(ratio, 1 + self.EPSILON, 1 - self.EPSILON) * adv
+                surr2 = torch.clamp(ratio, 1 + PPO.EPSILON, 1 - PPO.EPSILON) * adv
 
                 actor_loss = -torch.min(surr1, surr2).mean()
-                critic_loss = self.CRITIC_DISCOUNT * ((value_new.squeeze() - returns) ** 2).mean()
-                entropy_loss = self.ENTROPY_BETA * dist.entropy().mean()
+                critic_loss = PPO.CRITIC_DISCOUNT * ((value_new.squeeze() - returns) ** 2).mean()
+                entropy_loss = PPO.ENTROPY_BETA * dist.entropy().mean()
 
                 loss = actor_loss + critic_loss - entropy_loss
                 loss.backward()
