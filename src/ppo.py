@@ -73,35 +73,43 @@ class PPOBuffer:
                 prev_val = calc_vals[idx][batch]
 
         np.testing.assert_allclose(actual, calc_vals)
-        print('Test for discounted sums successful')
+        print("Test for discounted sums successful")
 
     def test_gae(self):
-
         rews = np.random.rand(10, 5)
         vals = np.random.rand(11, 5)
+        dones = [True for _ in range(rews.shape[-1])]
+        masks = np.ones_like(rews, dtype=np.float32)
+        masks[-1, dones] = 0
         advs = np.zeros((10, 5))
         dels = np.zeros((10, 5))
 
-        actual_dels = rews + self.gamma * vals[1:] - vals[:-1]
+        actual_dels = rews + (self.gamma * vals[1:] * masks) - vals[:-1]
         actual_advs = self.discounted_sum(actual_dels, self.gamma * self.lam)
 
         for batch in range(rews.shape[-1]):
             gae = 0
             for step in reversed(range(len(rews[:, batch]))):
-                delta = rews[step][batch] + self.gamma * vals[step+1][batch] - vals[step][batch]
+                delta = (
+                    rews[step][batch]
+                    + self.gamma * vals[step + 1][batch] * masks[step, batch]
+                    - vals[step][batch]
+                )
                 gae = delta + self.gamma * self.lam * gae
                 dels[step][batch] = delta
                 advs[step][batch] = gae
 
         np.testing.assert_allclose(advs, actual_advs)
         np.testing.assert_allclose(dels, actual_dels)
-        print('Test for computing GAE successful')
+        print("Test for computing GAE successful")
 
-    def compute_gae(self, next_value):
+    def compute_gae(self, next_value, dones):
         # https://www.reddit.com/r/reinforcementlearning/comments/s18hjr/comment/hs7i2pa
         # https://www.reddit.com/r/reinforcementlearning/comments/sa6hho/why_do_we_need_value_networks
         self.values[self.ptr] = next_value
-        deltas = self.rewards + self.gamma * self.values[1:] - self.values[:-1]
+        masks = np.ones_like(self.rewards, dtype=np.float32)
+        masks[-1, dones] = 0
+        deltas = self.rewards + (self.gamma * self.values[1:] * masks) - self.values[:-1]
         self.advantage = self.discounted_sum(deltas, self.gamma * self.lam)
         self.returns = self.discounted_sum(self.rewards, self.gamma)
         self.advantage = (self.advantage - self.advantage.mean(axis=0)) / (
@@ -165,10 +173,10 @@ class PPO:
         self.device = device
         self.logger = logger
         self.info_encoder = get_encoder()
-        buffer_args['gamma'], buffer_args['lam'] = PPO.GAMMA, PPO.LAMBDA
+        buffer_args["gamma"], buffer_args["lam"] = PPO.GAMMA, PPO.LAMBDA
         self.buffer = PPOBuffer(**buffer_args)
-        self.num_frames = buffer_args['num_frames']
-        self.zdim, self.buf_size = buffer_args['zdim'], buffer_args['buf_size']
+        self.num_frames = buffer_args["num_frames"]
+        self.zdim, self.buf_size = buffer_args["zdim"], buffer_args["buf_size"]
 
     @torch.no_grad()
     def rollout(self):
@@ -176,16 +184,16 @@ class PPO:
         self.vae.eval()
         self.lstm.eval()
         obs = torch.from_numpy(np.array(self.env.reset())).unsqueeze(dim=1).to(self.device)
-        info = self.info_encoder(self.env.env_method('get_info'))
+        info = self.info_encoder(self.env.env_method("get_info"))
         latent_repr = deque(
             np.zeros((self.num_frames, self.env.num_envs, self.zdim), dtype=np.float32),
             maxlen=self.num_frames,
         )
-        step = 0
+        step, dones = 0, [False for _ in range(self.env.num_envs)]
         latent_repr.append(np.column_stack((self.vae.encode(obs)[0].cpu().numpy(), info)))
 
         def to_numpy(x):
-            return x.to(device='cpu').numpy()
+            return x.to(device="cpu").numpy()
 
         for step in trange(self.buf_size):
 
@@ -208,25 +216,32 @@ class PPO:
 
             self.logger.log_rollout_step(np.mean(reward), value.detach().cpu().mean())
             if done.any():
+                dones = done
                 break
 
-        print('-------------------------------------------------------------')
-        print(f'Trajectory cut off at {step+1} time steps')
-        race_infos = np.array(self.env.env_method('get_info'))
-        env_infos = np.array(self.env.env_method('get_env_info'))
+        print("-------------------------------------------------------------")
+        print(f"Trajectory cut off at {step+1} time steps")
+        race_infos = np.array(self.env.env_method("get_info"))
+        env_infos = np.array(self.env.env_method("get_env_info"))
 
         for env_info, race_info in zip(env_infos, race_infos):
             for key, value in env_info.items():
-                print(f'{key}: {value}')
+                print(f"{key}: {value}")
             print(f'done: {race_info["done"]}')
             print(f'velocity: {race_info["velocity"]}')
             print(f'overall_distance: {race_info["overall_distance"]}')
             print()
-        print('-------------------------------------------------------------\n')
+        print("-------------------------------------------------------------\n")
 
         _, next_value = self.lstm(torch.from_numpy(np.array(latent_repr)).to(self.device))
-        self.buffer.compute_gae(to_numpy(next_value.squeeze(dim=-1)))
-        avg_rewards, avg_returns, avg_adv, avg_val, residual_var = self.buffer.get_stats()
+        self.buffer.compute_gae(to_numpy(next_value.squeeze(dim=-1)), dones)
+        (
+            avg_rewards,
+            avg_returns,
+            avg_adv,
+            avg_val,
+            residual_var,
+        ) = self.buffer.get_stats()
         self.logger.log_rollout(step, avg_rewards, avg_returns, avg_adv, avg_val, residual_var)
 
     def train(self):
@@ -263,7 +278,7 @@ class PPO:
                 loss.backward()
                 self.opt.step()
 
-                kl_div = F.kl_div(logp_old, logp_new, log_target=True, reduction='batchmean')
+                kl_div = F.kl_div(logp_old, logp_new, log_target=True, reduction="batchmean")
 
                 t.set_description(f"loss: {loss}")
                 self.logger.log_train(

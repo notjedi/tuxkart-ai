@@ -8,13 +8,14 @@ def test_env():
     env.reset()
 
     action = [1, 0, 1, 0, 0, 0]
-    for _ in range(100):
+    for _ in range(10):
         # action = env.action_space.sample()
         image, reward, _, info = env.step(action)
         plt.imshow(np.array(image).astype(np.uint8), cmap='gray')
         plt.pause(0.1)
 
     env.close()
+    plt.close()
     print("src/env.py test successful")
 
 
@@ -55,6 +56,7 @@ def test_ppo():
     vae = ConvVAE(obs_shape, Encoder, Decoder, ZDIM)
     vae.to(DEVICE)
     lstm = Net(ZDIM + 4, act_shape, NUM_ENVS)
+    lstm.reset(BUFFER_SIZE, NUM_ENVS)
     lstm.to(DEVICE)
 
     buf_args = {
@@ -93,8 +95,8 @@ def test_vae_model():
     vae.to(DEVICE)
 
     # summary(vae, input_data=rand_input, verbose=1)
-    recons_image_sto = vae(rand_input)
-    recons_image_det = vae(rand_input, mean=True)
+    recons_image_sto, _, _ = vae(rand_input)
+    recons_image_det = vae.reconstruct(rand_input)
     # print(recons_image_sto.shape, recons_image_det.shape)
     print("src/vae/model.py test successful")
 
