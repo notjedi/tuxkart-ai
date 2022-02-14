@@ -360,7 +360,7 @@ class STKReward(gym.Wrapper):
             reward += STKReward.EARLY_END
 
         self.prevInfo = info
-        return reward
+        return np.clip(reward, -5, 5)
 
     def step(self, action):
         state, reward, done, info = self.env.step(action)

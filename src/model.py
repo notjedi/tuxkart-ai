@@ -111,6 +111,21 @@ class LSTM(nn.Module):
         return out
 
 
+class StackedLinear(nn.Module):
+    def __init__(self, latent_shape, num_frames):
+        self.latent_shape = latent_shape
+        self.num_frames = num_frames
+        self.model = nn.Sequential(
+            nn.Linear(latent_shape, latent_shape // 2),
+            nn.Tanh(),
+            nn.Linear(latent_shape // 2, latent_shape // 2),
+            nn.Tanh(),
+        )
+
+    def forward(self, input):
+        return self.model(input)
+
+
 class Net(nn.Module):
     """
     Proximal Policy Optimization algorithm (PPO)
@@ -122,28 +137,36 @@ class Net(nn.Module):
     :param action_shape: The shape of the action space Eg: `MultiDiscrete().nvec`
     """
 
-    def __init__(self, zdim, action_shape: tuple, batch_size: int):
+    def __init__(self, zdim, action_shape: tuple, batch_size: int, lstm=False):
         super(Net, self).__init__()
 
         # https://discuss.pytorch.org/t/lstm-network-inside-a-sequential-container/19304/2
         torch.set_default_dtype(torch.float32)
         hidden_size, num_layers = 256, 2
+        self.lstm = lstm
 
-        self.lstm = LSTM(zdim, hidden_size, num_layers, batch_size)
-        self.actor = Actor(hidden_size, action_shape)
-        self.critic = Critic(hidden_size)
+        if self.lstm:
+            self.shared = LSTM(zdim, hidden_size, num_layers=num_layers, batch_size=batch_size)
+            latent_shape = hidden_size
+        else:
+            self.shared = StackedLinear(zdim, 5)
+            latent_shape = zdim // 2
+
+        self.actor = Actor(latent_shape, action_shape)
+        self.critic = Critic(latent_shape)
         self._initialize_weights()
 
     def reset(self, buffer_size, batch_size):
-        self.lstm.reset(buffer_size, batch_size)
+        if self.lstm:
+            self.lstm.reset(buffer_size, batch_size)
 
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                nn.init.kaiming_uniform_(m.weight)
+                nn.init.orthogonal_(m.weight)
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
 
     def forward(self, input: torch.Tensor, idx: int = -1):
-        input = self.lstm(input, idx)[-1]
+        input = self.shared(input, idx)[-1]
         return self.actor(input), self.critic(input)
