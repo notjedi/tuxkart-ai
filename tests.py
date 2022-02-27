@@ -30,7 +30,9 @@ def test_model():
 
     model = Net(ZDIM, ACT_DIM, BATCH_SIZE)
     model.to(DEVICE)
-    rand_input = torch.rand(NUM_FRAMES, BATCH_SIZE, ZDIM, device=DEVICE, dtype=torch.float32)
+    rand_input = torch.rand(
+        NUM_FRAMES, BATCH_SIZE, ZDIM, device=DEVICE, dtype=torch.float32
+    )
 
     # summary(model, input_data=rand_input, verbose=1) # remove MultiCategorical while using summary
     policy, value = model(rand_input)
@@ -49,8 +51,17 @@ def test_ppo():
     from src.utils import Logger, make_env
     from src.vae.model import ConvVAE, Encoder, Decoder
 
-    DEVICE, BUFFER_SIZE, NUM_FRAMES, NUM_ENVS, LR, ZDIM = 'cuda', 8, 5, 1, 1e-3, 256
-    env = SubprocVecEnv([make_env(id) for id in range(NUM_ENVS)], start_method='spawn')
+    DEVICE, BUFFER_SIZE, NUM_FRAMES, NUM_ENVS, LR, ZDIM = (
+        'cuda',
+        8,
+        5,
+        1,
+        1e-3,
+        256,
+    )
+    env = SubprocVecEnv(
+        [make_env(id) for id in range(NUM_ENVS)], start_method='spawn'
+    )
     obs_shape, act_shape = env.observation_space.shape, env.action_space.nvec
 
     vae = ConvVAE(obs_shape, Encoder, Decoder, ZDIM)
@@ -89,7 +100,11 @@ def test_vae_model():
     DEVICE, BATCH_SIZE = 'cuda', 8
 
     rand_input = torch.randint(
-        0, 255, (BATCH_SIZE, OBS_DIM[-1], *OBS_DIM[:-1]), device=DEVICE, dtype=torch.float32
+        0,
+        255,
+        (BATCH_SIZE, OBS_DIM[-1], *OBS_DIM[:-1]),
+        device=DEVICE,
+        dtype=torch.float32,
     )
     vae = ConvVAE(OBS_DIM, Encoder, Decoder, 128)
     vae.to(DEVICE)

@@ -1,4 +1,5 @@
 import pystk
+import numpy as np
 
 from random import choice
 
@@ -68,7 +69,13 @@ class STK:
 
     @staticmethod
     def get_race_config(
-        track=None, kart=None, numKarts=5, laps=1, reverse=False, difficulty=1, vae=False
+        track=None,
+        kart=None,
+        numKarts=5,
+        laps=1,
+        reverse=False,
+        difficulty=1,
+        vae=False,
     ):
         if track is None:
             track = choice(STK.TRACKS)
@@ -78,7 +85,7 @@ class STK:
         config = pystk.RaceConfig()
         config.difficulty = difficulty
         config.num_kart = numKarts
-        config.reverse = reverse
+        config.reverse = np.random.choice([True, False])
         config.step_size = 0.045
         config.track = track
         config.laps = laps
@@ -108,18 +115,38 @@ class Logger:
         self.rollout_step += 1
 
     def log_rollout(
-        self, tot_steps, avg_rewards, avg_returns, avg_advantage, avg_val, residual_var
+        self,
+        tot_steps,
+        avg_rewards,
+        avg_returns,
+        avg_advantage,
+        avg_val,
+        residual_var,
     ):
-        self.writer.add_scalar("rollout/tot_steps", tot_steps, self.rollout_global_step)
-        self.writer.add_scalar("rollout/avg_returns", avg_returns, self.rollout_global_step)
-        self.writer.add_scalar("rollout/avg_rewards", avg_rewards, self.rollout_global_step)
-        self.writer.add_scalar("rollout/avg_advantage", avg_advantage, self.rollout_global_step)
-        self.writer.add_scalar("rollout/avg_val", avg_val, self.rollout_global_step)
-        self.writer.add_scalar("train/residual_var", residual_var, self.rollout_global_step)
+        self.writer.add_scalar(
+            "rollout/tot_steps", tot_steps, self.rollout_global_step
+        )
+        self.writer.add_scalar(
+            "rollout/avg_returns", avg_returns, self.rollout_global_step
+        )
+        self.writer.add_scalar(
+            "rollout/avg_rewards", avg_rewards, self.rollout_global_step
+        )
+        self.writer.add_scalar(
+            "rollout/avg_advantage", avg_advantage, self.rollout_global_step
+        )
+        self.writer.add_scalar(
+            "rollout/avg_val", avg_val, self.rollout_global_step
+        )
+        self.writer.add_scalar(
+            "train/residual_var", residual_var, self.rollout_global_step
+        )
         self.rollout_global_step += 1
 
     def log_train(self, actor_loss, critic_loss, entropy_loss, loss, kl_div):
-        self.writer.add_scalar("train/entropy_loss", entropy_loss, self.train_step)
+        self.writer.add_scalar(
+            "train/entropy_loss", entropy_loss, self.train_step
+        )
         self.writer.add_scalar("train/policy_loss", actor_loss, self.train_step)
         self.writer.add_scalar("train/value_loss", critic_loss, self.train_step)
         self.writer.add_scalar("train/loss", loss, self.train_step)
@@ -130,24 +157,41 @@ class Logger:
         self.writer.add_scalar('eval/rewards', reward, self.eval_step)
         self.writer.add_scalar('eval/value', value, self.eval_step)
         self.writer.add_scalar('eval/total_rewards', tot_reward, self.eval_step)
-        self.writer.add_image('eval/image', image, self.eval_step, dataformats='HWC')
+        self.writer.add_image(
+            'eval/image', image, self.eval_step, dataformats='HWC'
+        )
         self.eval_step += 1
 
     def log_vae_train(self, recon_loss, kl_loss, tot_loss, beta):
-        self.writer.add_scalar('train_vae/loss', recon_loss, self.vae_train_step)
-        self.writer.add_scalar('train_vae/kl_loss', kl_loss, self.vae_train_step)
-        self.writer.add_scalar('train_vae/tot_loss', tot_loss, self.vae_train_step)
+        self.writer.add_scalar(
+            'train_vae/loss', recon_loss, self.vae_train_step
+        )
+        self.writer.add_scalar(
+            'train_vae/kl_loss', kl_loss, self.vae_train_step
+        )
+        self.writer.add_scalar(
+            'train_vae/tot_loss', tot_loss, self.vae_train_step
+        )
         self.writer.add_scalar('train_vae/beta', beta, self.vae_train_step)
         self.vae_train_step += 1
 
-    def log_vae_eval(self, recon_loss, kl_loss, tot_loss, images, recon_images, beta):
+    def log_vae_eval(
+        self, recon_loss, kl_loss, tot_loss, images, recon_images, beta
+    ):
         self.writer.add_scalar('eval_vae/loss', recon_loss, self.vae_eval_step)
         self.writer.add_scalar('eval_vae/kl_loss', kl_loss, self.vae_eval_step)
-        self.writer.add_scalar('eval_vae/tot_loss', tot_loss, self.vae_eval_step)
+        self.writer.add_scalar(
+            'eval_vae/tot_loss', tot_loss, self.vae_eval_step
+        )
         self.writer.add_scalar('eval_vae/beta', beta, self.vae_eval_step)
-        self.writer.add_images('eval_vae/images', images, self.vae_eval_step, dataformats='NCHW')
         self.writer.add_images(
-            'eval_vae/recon_images', recon_images, self.vae_eval_step, dataformats='NCHW'
+            'eval_vae/images', images, self.vae_eval_step, dataformats='NCHW'
+        )
+        self.writer.add_images(
+            'eval_vae/recon_images',
+            recon_images,
+            self.vae_eval_step,
+            dataformats='NCHW',
         )
         self.vae_eval_step += 1
 
@@ -163,10 +207,20 @@ def make_env(id: int, quality='hd', race_config_args={}):
     import gym
 
     def _init() -> gym.Env:
-        from src.env import STKAgent, STKEnv, STKReward, SkipFrame, GrayScaleObservation
+        from src.env import (
+            STKAgent,
+            STKEnv,
+            STKReward,
+            SkipFrame,
+            GrayScaleObservation,
+        )
 
         # TODO: don't include stkreward for vae
-        env = STKAgent(STK.get_graphic_config(quality), STK.get_race_config(**race_config_args), id)
+        env = STKAgent(
+            STK.get_graphic_config(quality),
+            STK.get_race_config(**race_config_args),
+            id,
+        )
         env = STKEnv(env)
         env = STKReward(env)
         env = SkipFrame(env, 2)

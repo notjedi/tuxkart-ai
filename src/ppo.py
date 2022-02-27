@@ -15,7 +15,9 @@ class PPOBuffer:
     Buffer to store all the (s, a, r, s`) for each step taken.
     """
 
-    def __init__(self, buf_size, num_envs, zdim, act_dim, num_frames, gamma, lam):
+    def __init__(
+        self, buf_size, num_envs, zdim, act_dim, num_frames, gamma, lam
+    ):
         self.ptr = 0
         self.buf_size = buf_size
         self.num_frames = num_frames
@@ -26,17 +28,31 @@ class PPOBuffer:
         self.lam = lam
         self.calculated_gae = False
         self.reset()
-        self.test_discounted_sum()
-        self.test_gae()
+        # self.test_discounted_sum()
+        # self.test_gae()
 
     def reset(self):
-        self.obs = np.zeros((self.buf_size, self.num_envs, self.zdim), dtype=np.float32)
-        self.actions = np.zeros((self.buf_size, self.num_envs, len(self.act_dim)), dtype=np.float32)
-        self.rewards = np.zeros((self.buf_size, self.num_envs), dtype=np.float32)
-        self.returns = np.zeros((self.buf_size, self.num_envs), dtype=np.float32)
-        self.values = np.zeros((self.buf_size + 1, self.num_envs), dtype=np.float32)
-        self.log_probs = np.zeros((self.buf_size, self.num_envs), dtype=np.float32)
-        self.advantage = np.zeros((self.buf_size, self.num_envs), dtype=np.float32)
+        self.obs = np.zeros(
+            (self.buf_size, self.num_envs, self.zdim), dtype=np.float32
+        )
+        self.actions = np.zeros(
+            (self.buf_size, self.num_envs, len(self.act_dim)), dtype=np.float32
+        )
+        self.rewards = np.zeros(
+            (self.buf_size, self.num_envs), dtype=np.float32
+        )
+        self.returns = np.zeros(
+            (self.buf_size, self.num_envs), dtype=np.float32
+        )
+        self.values = np.zeros(
+            (self.buf_size + 1, self.num_envs), dtype=np.float32
+        )
+        self.log_probs = np.zeros(
+            (self.buf_size, self.num_envs), dtype=np.float32
+        )
+        self.advantage = np.zeros(
+            (self.buf_size, self.num_envs), dtype=np.float32
+        )
 
     def save(self, obs, act, reward, value, log_prob):
         self.obs[self.ptr] = obs
@@ -56,7 +72,9 @@ class PPOBuffer:
             [[x0 + discount * x1 + discount^2 * x2, x1 + discount * x2, x2]
              [y0 + discount * y1 + discount^2 * y2, y1 + discount * y2, y2]]
         """
-        return np.flip(lfilter([1], [1, -discount], np.flip(x, axis=0), axis=0), axis=0)
+        return np.flip(
+            lfilter([1], [1, -discount], np.flip(x, axis=0), axis=0), axis=0
+        )
 
     def test_discounted_sum(self):
         test_vals = np.random.rand(20, 5)
@@ -66,7 +84,6 @@ class PPOBuffer:
 
         for batch in range(test_vals.shape[-1]):
             prev_val = 0
-            sums = []
             for i, val in enumerate(reversed(test_vals[:, batch])):
                 idx = buf_size - i
                 calc_vals[idx][batch] = val + (self.gamma * prev_val)
@@ -109,13 +126,19 @@ class PPOBuffer:
         self.values[self.ptr] = next_value
         masks = np.ones_like(self.rewards, dtype=np.float32)
         masks[-1, dones] = 0
-        deltas = self.rewards + (self.gamma * self.values[1:] * masks) - self.values[:-1]
+        deltas = (
+            self.rewards
+            + (self.gamma * self.values[1:] * masks)
+            - self.values[:-1]
+        )
         self.advantage = self.discounted_sum(deltas, self.gamma * self.lam)
         self.returns = self.discounted_sum(self.rewards, self.gamma)
         self.advantage = (self.advantage - self.advantage.mean(axis=0)) / (
             self.advantage.std(axis=0) + 1e-5
         )
-        self.var_returns_val = np.mean(np.var(self.returns - self.values[:-1], axis=1))
+        self.var_returns_val = np.mean(
+            np.var(self.returns - self.values[:-1], axis=1)
+        )
         self.mean_val = np.mean(np.sum(self.values, axis=1))
         self.calculated_gae = True
         del self.values
@@ -161,7 +184,16 @@ class PPO:
     ENTROPY_BETA = 0.2
     CRITIC_DISCOUNT = 0.5
 
-    def __init__(self, env: SubprocVecEnv, vae, lstm, optimizer, logger, device, **buffer_args):
+    def __init__(
+        self,
+        env: SubprocVecEnv,
+        vae,
+        lstm,
+        optimizer,
+        logger,
+        device,
+        **buffer_args,
+    ):
         """
         :param env: list of STKEnv or vectorized envs?
         """
@@ -183,29 +215,44 @@ class PPO:
 
         self.vae.eval()
         self.lstm.eval()
-        obs = torch.from_numpy(np.array(self.env.reset())).unsqueeze(dim=1).to(self.device)
+        obs = (
+            torch.from_numpy(np.array(self.env.reset()))
+            .unsqueeze(dim=1)
+            .to(self.device)
+        )
         info = self.info_encoder(self.env.env_method("get_info"))
         latent_repr = deque(
-            np.zeros((self.num_frames, self.env.num_envs, self.zdim), dtype=np.float32),
+            np.zeros(
+                (self.num_frames, self.env.num_envs, self.zdim),
+                dtype=np.float32,
+            ),
             maxlen=self.num_frames,
         )
         step, dones = 0, [False for _ in range(self.env.num_envs)]
-        latent_repr.append(np.column_stack((self.vae.encode(obs)[0].cpu().numpy(), info)))
+        latent_repr.append(
+            np.column_stack((self.vae.encode(obs)[0].cpu().numpy(), info))
+        )
 
         def to_numpy(x):
             return x.to(device="cpu").numpy()
 
         for step in trange(self.buf_size):
 
-            dist, value = self.lstm(torch.from_numpy(np.array(latent_repr)).to(self.device))
+            dist, value = self.lstm(
+                torch.from_numpy(np.array(latent_repr)).to(self.device)
+            )
             action = dist.sample()
             log_prob = dist.log_prob(action)
 
             obs, reward, done, info = self.env.step(to_numpy(action))
-            obs = torch.from_numpy(np.array(obs)).unsqueeze(dim=1).to(self.device)
+            obs = (
+                torch.from_numpy(np.array(obs)).unsqueeze(dim=1).to(self.device)
+            )
             info = self.info_encoder(info)
 
-            latent_repr.append(np.column_stack((self.vae.encode(obs)[0].cpu().numpy(), info)))
+            latent_repr.append(
+                np.column_stack((self.vae.encode(obs)[0].cpu().numpy(), info))
+            )
             self.buffer.save(
                 latent_repr[-1],
                 to_numpy(action),
@@ -214,7 +261,9 @@ class PPO:
                 to_numpy(log_prob),
             )
 
-            self.logger.log_rollout_step(np.mean(reward), value.detach().cpu().mean())
+            self.logger.log_rollout_step(
+                np.mean(reward), value.detach().cpu().mean()
+            )
             if done.any():
                 dones = done
                 break
@@ -233,7 +282,9 @@ class PPO:
             print()
         print("-------------------------------------------------------------\n")
 
-        _, next_value = self.lstm(torch.from_numpy(np.array(latent_repr)).to(self.device))
+        _, next_value = self.lstm(
+            torch.from_numpy(np.array(latent_repr)).to(self.device)
+        )
         self.buffer.compute_gae(to_numpy(next_value.squeeze(dim=-1)), dones)
         (
             avg_rewards,
@@ -242,14 +293,18 @@ class PPO:
             avg_val,
             residual_var,
         ) = self.buffer.get_stats()
-        self.logger.log_rollout(step, avg_rewards, avg_returns, avg_adv, avg_val, residual_var)
+        self.logger.log_rollout(
+            step, avg_rewards, avg_returns, avg_adv, avg_val, residual_var
+        )
 
     def train(self):
 
         self.vae.train()
         self.lstm.train()
         to_cuda = (
-            lambda x: torch.from_numpy(x).to(device=torch.device(self.device), dtype=torch.float32)
+            lambda x: torch.from_numpy(x).to(
+                device=torch.device(self.device), dtype=torch.float32
+            )
             if isinstance(x, np.ndarray)
             else x
         )
@@ -262,23 +317,32 @@ class PPO:
             for timestep in t:
 
                 self.opt.zero_grad()
-                idx, latent_repr, act, returns, logp_old, adv = map(to_cuda, self.buffer.get())
+                idx, latent_repr, act, returns, logp_old, adv = map(
+                    to_cuda, self.buffer.get()
+                )
                 dist, value_new = self.lstm(latent_repr, idx)
                 logp_new = dist.log_prob(act)
 
                 ratio = (logp_new - logp_old).exp()
                 surr1 = ratio * adv
-                surr2 = torch.clamp(ratio, 1 + PPO.EPSILON, 1 - PPO.EPSILON) * adv
+                surr2 = (
+                    torch.clamp(ratio, 1 + PPO.EPSILON, 1 - PPO.EPSILON) * adv
+                )
 
                 actor_loss = -torch.min(surr1, surr2).mean()
-                critic_loss = PPO.CRITIC_DISCOUNT * ((value_new.squeeze() - returns) ** 2).mean()
+                critic_loss = (
+                    PPO.CRITIC_DISCOUNT
+                    * ((value_new.squeeze() - returns) ** 2).mean()
+                )
                 entropy_loss = PPO.ENTROPY_BETA * dist.entropy().mean()
 
                 loss = actor_loss + critic_loss - entropy_loss
                 loss.backward()
                 self.opt.step()
 
-                kl_div = F.kl_div(logp_old, logp_new, log_target=True, reduction="batchmean")
+                kl_div = F.kl_div(
+                    logp_old, logp_new, log_target=True, reduction="batchmean"
+                )
 
                 t.set_description(f"loss: {loss}")
                 self.logger.log_train(

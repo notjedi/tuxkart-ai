@@ -15,21 +15,28 @@ from src.utils import Logger, make_env, get_encoder
 
 
 @torch.no_grad()
-def eval(env, vae, lstm, logger, args, self_control=False, log=False, render=False):
+def eval(
+    env, vae, lstm, logger, args, self_control=False, log=False, render=False
+):
 
     assert env.num_envs == 1, 'eval is only supported for num_envs = 1'
     vae.eval()
     lstm.eval()
-    lstm.reset(args.eval_steps, 1)
-    obs = torch.from_numpy(np.array(env.reset())).unsqueeze(dim=1).to(args.device)
+    obs = (
+        torch.from_numpy(np.array(env.reset())).unsqueeze(dim=1).to(args.device)
+    )
 
     info_encoder = get_encoder()
     prev_info = info_encoder(env.env_method('get_info'))
     latent_repr = deque(
-        np.zeros((args.num_frames, env.num_envs, vae.zdim + 4), dtype=np.float32),
+        np.zeros(
+            (args.num_frames, env.num_envs, vae.zdim + 4), dtype=np.float32
+        ),
         maxlen=args.num_frames,
     )
-    latent_repr.append(np.column_stack((vae.encode(obs)[0].cpu().numpy(), prev_info)))
+    latent_repr.append(
+        np.column_stack((vae.encode(obs)[0].cpu().numpy(), prev_info))
+    )
     act = np.array([None])
     tot_reward = 0
 
@@ -42,12 +49,18 @@ def eval(env, vae, lstm, logger, args, self_control=False, log=False, render=Fal
         if self_control:
             obs, reward, done, info = env.step(act)
         else:
-            dist, value = lstm(torch.from_numpy(np.array(latent_repr)).to(args.device))
+            dist, value = lstm(
+                torch.from_numpy(np.array(latent_repr)).to(args.device)
+            )
             action = to_numpy(dist.mode())
             obs, reward, done, info = env.step(action)
-            obs = torch.from_numpy(np.array(obs)).unsqueeze(dim=1).to(args.device)
+            obs = (
+                torch.from_numpy(np.array(obs)).unsqueeze(dim=1).to(args.device)
+            )
             prev_info = info_encoder(info)
-            latent_repr.append(np.column_stack((vae.encode(obs)[0].cpu().numpy(), prev_info)))
+            latent_repr.append(
+                np.column_stack((vae.encode(obs)[0].cpu().numpy(), prev_info))
+            )
 
         sum_reward = reward.sum()
         tot_reward += sum_reward
@@ -96,10 +109,18 @@ def main(args):
         lstm.load_state_dict(torch.load(args.lstm_model_path))
 
     env = SubprocVecEnv(
-        [make_env(id, args.graphic, race_config_args) for id in range(1)], start_method='spawn'
+        [make_env(id, args.graphic, race_config_args) for id in range(1)],
+        start_method='spawn',
     )
     reward = eval(
-        env, vae, lstm, logger, args, self_control=args.self_control, log=False, render=True
+        env,
+        vae,
+        lstm,
+        logger,
+        args,
+        self_control=args.self_control,
+        log=False,
+        render=True,
     )
     print(f'Total rewards: {reward}')
     env.close()
@@ -120,17 +141,27 @@ if __name__ == '__main__':
     parser.add_argument('--self_control', type=bool, default=False)
     parser.add_argument('--kart', type=str, choices=STK.KARTS, default=None)
     parser.add_argument('--track', type=str, choices=STK.TRACKS, default=None)
-    parser.add_argument('--graphic', type=str, choices=['hd', 'ld', 'sd'], default='hd')
+    parser.add_argument(
+        '--graphic', type=str, choices=['hd', 'ld', 'sd'], default='hd'
+    )
 
     parser.add_argument('--zdim', type=int, default=256)
     parser.add_argument('--num_frames', type=int, default=5)
     parser.add_argument('--eval_steps', type=int, default=2500)
-    parser.add_argument('--device', type=str, choices=['cpu', 'cuda'], default='cuda')
     parser.add_argument(
-        '--vae_model_path', type=Path, default=None, help='Load VAE model from path.'
+        '--device', type=str, choices=['cpu', 'cuda'], default='cuda'
     )
     parser.add_argument(
-        '--lstm_model_path', type=Path, default=None, help='Load LSTM model from path.'
+        '--vae_model_path',
+        type=Path,
+        default=None,
+        help='Load VAE model from path.',
+    )
+    parser.add_argument(
+        '--lstm_model_path',
+        type=Path,
+        default=None,
+        help='Load LSTM model from path.',
     )
     parser.add_argument(
         '--log_dir',

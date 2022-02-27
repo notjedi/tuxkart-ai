@@ -20,8 +20,12 @@ def eval(vae, lstm, logger, args):
     from eval import eval
 
     try:
-        env = SubprocVecEnv([make_env(id) for id in range(1)], start_method='spawn')
-        tot_reward = np.sum(eval(env, vae, lstm, logger, args, log=True)) / args.num_envs
+        env = SubprocVecEnv(
+            [make_env(id) for id in range(1)], start_method='spawn'
+        )
+        tot_reward = (
+            np.sum(eval(env, vae, lstm, logger, args, log=True)) / args.num_envs
+        )
         env.close()
     except EOFError as e:
         print(e)
@@ -31,6 +35,7 @@ def eval(vae, lstm, logger, args):
 
 def main(args):
 
+    args.seed = np.random.rand()
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
     if not os.path.isdir(args.save_dir):
@@ -73,17 +78,19 @@ def main(args):
             'reverse': np.random.choice([True, False]),
         }
         env = SubprocVecEnv(
-            [make_env(id, args.graphic, race_config_args) for id in range(args.num_envs)],
+            [
+                make_env(id, args.graphic, race_config_args)
+                for id in range(args.num_envs)
+            ],
             start_method='spawn',
         )
-        lstm.reset(args.buffer_size, args.num_envs)
         ppo = PPO(env, vae, lstm, optimizer, logger, args.device, **buf_args)
 
         try:
             ppo.rollout()
             env.close()
             ppo.train()
-            torch.save(lstm.state_dict(), f'{args.save_dir}/lstm-temp.pth')
+            torch.save(lstm.state_dict(), f'{args.save_dir}/stacked-temp.pth')
         except EOFError as e:
             print(e)
             print(f"EOFError at timestep {i+1}")
@@ -97,10 +104,13 @@ def main(args):
             if curr_reward > prev_reward:
                 print(
                     f'{curr_reward} is better than {prev_reward}, \
-                        saving model to path model/lstm-{i}.pth'
+                        saving model to path model/stacked-{i}.pth'
                 )
                 prev_reward = curr_reward
-                torch.save(lstm.state_dict(), f'{args.save_dir}/lstm-{i}-{curr_reward:.2f}.pth')
+                torch.save(
+                    lstm.state_dict(),
+                    f'{args.save_dir}/stacked-{i}-{curr_reward:.2f}.pth',
+                )
 
 
 if __name__ == '__main__':
@@ -112,17 +122,25 @@ if __name__ == '__main__':
     # env arguments
     parser.add_argument('--kart', type=str, choices=STK.KARTS, default=None)
     parser.add_argument('--track', type=str, choices=STK.TRACKS, default=None)
-    parser.add_argument('--graphic', type=str, choices=['hd', 'ld', 'sd'], default='hd')
+    parser.add_argument(
+        '--graphic', type=str, choices=['hd', 'ld', 'sd'], default='hd'
+    )
 
     # model args
     parser.add_argument(
-        '--vae_model_path', type=Path, default=None, help='Load VAE model from path.'
+        '--vae_model_path',
+        type=Path,
+        default=None,
+        help='Load VAE model from path.',
     )
     parser.add_argument(
-        '--lstm_model_path', type=Path, default=None, help='Load LSTM model from path.'
+        '--lstm_model_path',
+        type=Path,
+        default=None,
+        help='Load LSTM model from path.',
     )
     parser.add_argument('--zdim', type=int, default=256)
-    parser.add_argument('--lr', type=float, default=1e-4)
+    parser.add_argument('--lr', type=float, default=5e-3)
     parser.add_argument('--seed', type=int, default=1337)
     parser.add_argument('--num_frames', type=int, default=5)
     parser.add_argument('--buffer_size', type=int, default=512)
@@ -132,7 +150,9 @@ if __name__ == '__main__':
     parser.add_argument('--eval_steps', type=int, default=512)
     parser.add_argument('--eval_interval', type=int, default=20)
     parser.add_argument('--num_global_steps', type=int, default=5000)
-    parser.add_argument('--device', type=str, choices=['cpu', 'cuda'], default='cuda')
+    parser.add_argument(
+        '--device', type=str, choices=['cpu', 'cuda'], default='cuda'
+    )
     parser.add_argument(
         '--log_dir',
         type=Path,
