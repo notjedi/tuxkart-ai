@@ -1,11 +1,11 @@
-import torch
-import numpy as np
-
-from tqdm import tqdm, trange
 from collections import deque
+
+import numpy as np
+import torch
 import torch.nn.functional as F
 from scipy.signal import lfilter
 from stable_baselines3.common.vec_env import SubprocVecEnv
+from tqdm import tqdm, trange
 
 from .utils import get_encoder
 
@@ -15,9 +15,7 @@ class PPOBuffer:
     Buffer to store all the (s, a, r, s`) for each step taken.
     """
 
-    def __init__(
-        self, buf_size, num_envs, zdim, act_dim, num_frames, gamma, lam
-    ):
+    def __init__(self, buf_size, num_envs, zdim, act_dim, num_frames, gamma, lam):
         self.ptr = 0
         self.buf_size = buf_size
         self.num_frames = num_frames
@@ -32,27 +30,15 @@ class PPOBuffer:
         # self.test_gae()
 
     def reset(self):
-        self.obs = np.zeros(
-            (self.buf_size, self.num_envs, self.zdim), dtype=np.float32
-        )
+        self.obs = np.zeros((self.buf_size, self.num_envs, self.zdim), dtype=np.float32)
         self.actions = np.zeros(
             (self.buf_size, self.num_envs, len(self.act_dim)), dtype=np.float32
         )
-        self.rewards = np.zeros(
-            (self.buf_size, self.num_envs), dtype=np.float32
-        )
-        self.returns = np.zeros(
-            (self.buf_size, self.num_envs), dtype=np.float32
-        )
-        self.values = np.zeros(
-            (self.buf_size + 1, self.num_envs), dtype=np.float32
-        )
-        self.log_probs = np.zeros(
-            (self.buf_size, self.num_envs), dtype=np.float32
-        )
-        self.advantage = np.zeros(
-            (self.buf_size, self.num_envs), dtype=np.float32
-        )
+        self.rewards = np.zeros((self.buf_size, self.num_envs), dtype=np.float32)
+        self.returns = np.zeros((self.buf_size, self.num_envs), dtype=np.float32)
+        self.values = np.zeros((self.buf_size + 1, self.num_envs), dtype=np.float32)
+        self.log_probs = np.zeros((self.buf_size, self.num_envs), dtype=np.float32)
+        self.advantage = np.zeros((self.buf_size, self.num_envs), dtype=np.float32)
 
     def save(self, obs, act, reward, value, log_prob):
         self.obs[self.ptr] = obs
@@ -72,9 +58,7 @@ class PPOBuffer:
             [[x0 + discount * x1 + discount^2 * x2, x1 + discount * x2, x2]
              [y0 + discount * y1 + discount^2 * y2, y1 + discount * y2, y2]]
         """
-        return np.flip(
-            lfilter([1], [1, -discount], np.flip(x, axis=0), axis=0), axis=0
-        )
+        return np.flip(lfilter([1], [1, -discount], np.flip(x, axis=0), axis=0), axis=0)
 
     def test_discounted_sum(self):
         test_vals = np.random.rand(20, 5)
@@ -127,18 +111,14 @@ class PPOBuffer:
         masks = np.ones_like(self.rewards, dtype=np.float32)
         masks[-1, dones] = 0
         deltas = (
-            self.rewards
-            + (self.gamma * self.values[1:] * masks)
-            - self.values[:-1]
+            self.rewards + (self.gamma * self.values[1:] * masks) - self.values[:-1]
         )
         self.advantage = self.discounted_sum(deltas, self.gamma * self.lam)
         self.returns = self.discounted_sum(self.rewards, self.gamma)
         self.advantage = (self.advantage - self.advantage.mean(axis=0)) / (
             self.advantage.std(axis=0) + 1e-5
         )
-        self.var_returns_val = np.mean(
-            np.var(self.returns - self.values[:-1], axis=1)
-        )
+        self.var_returns_val = np.mean(np.var(self.returns - self.values[:-1], axis=1))
         self.mean_val = np.mean(np.sum(self.values, axis=1))
         self.calculated_gae = True
         del self.values
@@ -245,9 +225,7 @@ class PPO:
             log_prob = dist.log_prob(action)
 
             obs, reward, done, info = self.env.step(to_numpy(action))
-            obs = (
-                torch.from_numpy(np.array(obs)).unsqueeze(dim=1).to(self.device)
-            )
+            obs = torch.from_numpy(np.array(obs)).unsqueeze(dim=1).to(self.device)
             info = self.info_encoder(info)
 
             latent_repr.append(
@@ -261,9 +239,7 @@ class PPO:
                 to_numpy(log_prob),
             )
 
-            self.logger.log_rollout_step(
-                np.mean(reward), value.detach().cpu().mean()
-            )
+            self.logger.log_rollout_step(np.mean(reward), value.detach().cpu().mean())
             if done.any():
                 dones = done
                 break
@@ -301,8 +277,8 @@ class PPO:
 
         self.vae.train()
         self.lstm.train()
-        to_cuda = (
-            lambda x: torch.from_numpy(x).to(
+        to_cuda = lambda x: (
+            torch.from_numpy(x).to(
                 device=torch.device(self.device), dtype=torch.float32
             )
             if isinstance(x, np.ndarray)
@@ -325,14 +301,11 @@ class PPO:
 
                 ratio = (logp_new - logp_old).exp()
                 surr1 = ratio * adv
-                surr2 = (
-                    torch.clamp(ratio, 1 + PPO.EPSILON, 1 - PPO.EPSILON) * adv
-                )
+                surr2 = torch.clamp(ratio, 1 + PPO.EPSILON, 1 - PPO.EPSILON) * adv
 
                 actor_loss = -torch.min(surr1, surr2).mean()
                 critic_loss = (
-                    PPO.CRITIC_DISCOUNT
-                    * ((value_new.squeeze() - returns) ** 2).mean()
+                    PPO.CRITIC_DISCOUNT * ((value_new.squeeze() - returns) ** 2).mean()
                 )
                 entropy_loss = PPO.ENTROPY_BETA * dist.entropy().mean()
 

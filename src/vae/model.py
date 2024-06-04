@@ -1,5 +1,4 @@
 import torch
-
 from torch import nn
 
 
@@ -68,7 +67,9 @@ class Encoder(nn.Module):
     def __init__(self, obs_shape, zdim):
         super(Encoder, self).__init__()
         self.encoder = nn.Sequential(
-            nn.Conv2d(obs_shape[-1], 128, kernel_size=10, padding=1, stride=4, bias=False),
+            nn.Conv2d(
+                obs_shape[-1], 128, kernel_size=10, padding=1, stride=4, bias=False
+            ),
             nn.ReLU(),
             nn.BatchNorm2d(128),
             nn.Conv2d(128, 256, kernel_size=4, padding=2, stride=1, bias=False),
@@ -98,7 +99,9 @@ class Decoder(nn.Module):
         self.latent_shape = latent_shape
         self.fc1 = nn.Linear(zdim, torch.prod(latent_shape))
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(latent_shape[0], 128, kernel_size=3, padding=1, stride=2),
+            nn.ConvTranspose2d(
+                latent_shape[0], 128, kernel_size=3, padding=1, stride=2
+            ),
             nn.ReLU(),
             nn.ConvTranspose2d(128, 256, kernel_size=3, padding=1, stride=1),
             nn.ReLU(),
@@ -109,7 +112,9 @@ class Decoder(nn.Module):
         with torch.no_grad():
             x = torch.rand(1, *latent_shape)
             recons_shape = self.decoder(x).shape[1:]
-            self.recons_shape = torch.tensor([recons_shape[1], recons_shape[2], recons_shape[0]])
+            self.recons_shape = torch.tensor(
+                [recons_shape[1], recons_shape[2], recons_shape[0]]
+            )
 
     def forward(self, x):
         x = self.fc1(x).view(-1, *self.latent_shape)

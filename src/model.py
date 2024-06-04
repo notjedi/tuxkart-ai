@@ -1,6 +1,5 @@
-import torch
 import numpy as np
-
+import torch
 from torch import nn
 from torch.distributions import Categorical
 
@@ -28,9 +27,7 @@ class MultiCategorical:
         ).sum(dim=1)
 
     def entropy(self) -> torch.Tensor:
-        return torch.stack([dist.entropy() for dist in self.dist], dim=1).sum(
-            dim=1
-        )
+        return torch.stack([dist.entropy() for dist in self.dist], dim=1).sum(dim=1)
 
     def sample(self) -> torch.Tensor:
         assert self.dist is not None
@@ -118,9 +115,7 @@ class Net(nn.Module):
     :param action_shape: The shape of the action space Eg: `MultiDiscrete().nvec`
     """
 
-    def __init__(
-        self, zdim, action_shape: tuple, batch_size: int, isLSTM=False
-    ):
+    def __init__(self, zdim, action_shape: tuple, batch_size: int, isLSTM=False):
         super(Net, self).__init__()
 
         # https://discuss.pytorch.org/t/lstm-network-inside-a-sequential-container/19304/2

@@ -1,11 +1,10 @@
 import gym
-import torch
-import pystk
 import numpy as np
-
-from sympy import Point3D, Line3D
-from torchvision import transforms as T
+import pystk
+import torch
 from gym.spaces import Box, MultiDiscrete
+from sympy import Line3D, Point3D
+from torchvision import transforms as T
 
 
 class STKAgent:
@@ -18,13 +17,19 @@ class STKAgent:
     :param raceConfig: `pystk.RaceConfig` object specifying the track and other configs
     """
 
-    def __init__(self, graphicConfig: pystk.GraphicsConfig, raceConfig: pystk.RaceConfig, id=1):
+    def __init__(
+        self, graphicConfig: pystk.GraphicsConfig, raceConfig: pystk.RaceConfig, id=1
+    ):
 
         pystk.init(graphicConfig)
         self.id = id
         self.node_idx = 0
         self.started = False
-        self.observation_shape = (graphicConfig.screen_height, graphicConfig.screen_width, 3)
+        self.observation_shape = (
+            graphicConfig.screen_height,
+            graphicConfig.screen_width,
+            3,
+        )
         self.graphicConfig = graphicConfig
         self.race = pystk.Race(raceConfig)
         self.reverse = raceConfig.reverse
@@ -74,7 +79,9 @@ class STKAgent:
         return self.playerKart.powerup.type
 
     def _get_position(self) -> int:
-        overallDist = sorted([kart.overall_distance for kart in self.state.karts], reverse=True)
+        overallDist = sorted(
+            [kart.overall_distance for kart in self.state.karts], reverse=True
+        )
         return overallDist.index(self.playerKart.overall_distance) + 1
 
     def _get_attachment(self):
@@ -122,13 +129,13 @@ class STKAgent:
 
     def get_env_info(self) -> dict:
         info = {}
-        info['id'] = self.id
-        info['laps'] = self.race.config.laps
-        info['track'] = self.race.config.track
-        info['reverse'] = self.race.config.reverse
-        info['num_kart'] = self.race.config.num_kart
-        info['step_size'] = self.race.config.step_size
-        info['difficulty'] = self.race.config.difficulty
+        info["id"] = self.id
+        info["laps"] = self.race.config.laps
+        info["track"] = self.race.config.track
+        info["reverse"] = self.race.config.reverse
+        info["num_kart"] = self.race.config.num_kart
+        info["step_size"] = self.race.config.step_size
+        info["difficulty"] = self.race.config.difficulty
         return info
 
     def get_info(self) -> dict:
@@ -235,13 +242,13 @@ class STKEnv(gym.Env):
 
     def step(self, action):
         if action is not None:
-            assert self.action_space.contains(action), f'Invalid Action {action}'
+            assert self.action_space.contains(action), f"Invalid Action {action}"
         return self.env.step(action)
 
     def reset(self):
         return self.env.reset()
 
-    def render(self, mode: str = 'human'):
+    def render(self, mode: str = "human"):
         return self.env.image
 
     def get_info(self):
@@ -368,7 +375,9 @@ class STKReward(gym.Wrapper):
             reward = self._get_reward(action, info)
             if info.get("early_end", False):
                 done = True
-                print(f'env_id: {self.env.env.id} - {info.get("early_end_reason", "None")}')
+                print(
+                    f'env_id: {self.env.env.id} - {info.get("early_end_reason", "None")}'
+                )
         return state, reward, done, info
 
 

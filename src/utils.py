@@ -1,53 +1,53 @@
-import pystk
-import numpy as np
-
 from random import choice
+
+import numpy as np
+import pystk
 
 
 class STK:
 
     TRACKS = [
-        'abyss',
-        'black_forest',
-        'candela_city',
-        'cocoa_temple',
-        'cornfield_crossing',
-        'fortmagma',
-        'gran_paradiso_island',
-        'hacienda',
-        'lighthouse',
-        'minigolf',
-        'olivermath',
-        'ravenbridge_mansion',
-        'sandtrack',
-        'scotland',
-        'snowmountain',
-        'snowtuxpeak',
-        'stk_enterprise',
-        'volcano_island',
-        'xr591',
-        'zengarden',
+        "abyss",
+        "black_forest",
+        "candela_city",
+        "cocoa_temple",
+        "cornfield_crossing",
+        "fortmagma",
+        "gran_paradiso_island",
+        "hacienda",
+        "lighthouse",
+        "minigolf",
+        "olivermath",
+        "ravenbridge_mansion",
+        "sandtrack",
+        "scotland",
+        "snowmountain",
+        "snowtuxpeak",
+        "stk_enterprise",
+        "volcano_island",
+        "xr591",
+        "zengarden",
     ]
 
     KARTS = [
-        'adiumy',
-        'amanda',
-        'beastie',
-        'emule',
-        'gavroche',
-        'gnu',
-        'hexley',
-        'kiki',
-        'konqi',
-        'nolok',
-        'pidgin',
-        'puffy',
-        'sara_the_racer',
-        'sara_the_wizard',
-        'suzanne',
-        'tux',
-        'wilber',
-        'xue',
+        "adiumy",
+        "amanda",
+        "beastie",
+        "emule",
+        "gavroche",
+        "gnu",
+        "hexley",
+        "kiki",
+        "konqi",
+        "nolok",
+        "pidgin",
+        "puffy",
+        "sara_the_racer",
+        "sara_the_wizard",
+        "suzanne",
+        "tux",
+        "wilber",
+        "xue",
     ]
 
     GRAPHICS = {
@@ -61,7 +61,7 @@ class STK:
     HEIGHT = 400
 
     @staticmethod
-    def get_graphic_config(quality='hd'):
+    def get_graphic_config(quality="hd"):
         config = STK.GRAPHICS[quality]()
         config.screen_width = STK.WIDTH
         config.screen_height = STK.HEIGHT
@@ -123,9 +123,7 @@ class Logger:
         avg_val,
         residual_var,
     ):
-        self.writer.add_scalar(
-            "rollout/tot_steps", tot_steps, self.rollout_global_step
-        )
+        self.writer.add_scalar("rollout/tot_steps", tot_steps, self.rollout_global_step)
         self.writer.add_scalar(
             "rollout/avg_returns", avg_returns, self.rollout_global_step
         )
@@ -135,18 +133,14 @@ class Logger:
         self.writer.add_scalar(
             "rollout/avg_advantage", avg_advantage, self.rollout_global_step
         )
-        self.writer.add_scalar(
-            "rollout/avg_val", avg_val, self.rollout_global_step
-        )
+        self.writer.add_scalar("rollout/avg_val", avg_val, self.rollout_global_step)
         self.writer.add_scalar(
             "train/residual_var", residual_var, self.rollout_global_step
         )
         self.rollout_global_step += 1
 
     def log_train(self, actor_loss, critic_loss, entropy_loss, loss, kl_div):
-        self.writer.add_scalar(
-            "train/entropy_loss", entropy_loss, self.train_step
-        )
+        self.writer.add_scalar("train/entropy_loss", entropy_loss, self.train_step)
         self.writer.add_scalar("train/policy_loss", actor_loss, self.train_step)
         self.writer.add_scalar("train/value_loss", critic_loss, self.train_step)
         self.writer.add_scalar("train/loss", loss, self.train_step)
@@ -154,49 +148,37 @@ class Logger:
         self.train_step += 1
 
     def log_eval(self, reward, value, tot_reward, image):
-        self.writer.add_scalar('eval/rewards', reward, self.eval_step)
-        self.writer.add_scalar('eval/value', value, self.eval_step)
-        self.writer.add_scalar('eval/total_rewards', tot_reward, self.eval_step)
-        self.writer.add_image(
-            'eval/image', image, self.eval_step, dataformats='HWC'
-        )
+        self.writer.add_scalar("eval/rewards", reward, self.eval_step)
+        self.writer.add_scalar("eval/value", value, self.eval_step)
+        self.writer.add_scalar("eval/total_rewards", tot_reward, self.eval_step)
+        self.writer.add_image("eval/image", image, self.eval_step, dataformats="HWC")
         self.eval_step += 1
 
     def log_vae_train(self, recon_loss, kl_loss, tot_loss, beta):
-        self.writer.add_scalar(
-            'train_vae/loss', recon_loss, self.vae_train_step
-        )
-        self.writer.add_scalar(
-            'train_vae/kl_loss', kl_loss, self.vae_train_step
-        )
-        self.writer.add_scalar(
-            'train_vae/tot_loss', tot_loss, self.vae_train_step
-        )
-        self.writer.add_scalar('train_vae/beta', beta, self.vae_train_step)
+        self.writer.add_scalar("train_vae/loss", recon_loss, self.vae_train_step)
+        self.writer.add_scalar("train_vae/kl_loss", kl_loss, self.vae_train_step)
+        self.writer.add_scalar("train_vae/tot_loss", tot_loss, self.vae_train_step)
+        self.writer.add_scalar("train_vae/beta", beta, self.vae_train_step)
         self.vae_train_step += 1
 
-    def log_vae_eval(
-        self, recon_loss, kl_loss, tot_loss, images, recon_images, beta
-    ):
-        self.writer.add_scalar('eval_vae/loss', recon_loss, self.vae_eval_step)
-        self.writer.add_scalar('eval_vae/kl_loss', kl_loss, self.vae_eval_step)
-        self.writer.add_scalar(
-            'eval_vae/tot_loss', tot_loss, self.vae_eval_step
-        )
-        self.writer.add_scalar('eval_vae/beta', beta, self.vae_eval_step)
+    def log_vae_eval(self, recon_loss, kl_loss, tot_loss, images, recon_images, beta):
+        self.writer.add_scalar("eval_vae/loss", recon_loss, self.vae_eval_step)
+        self.writer.add_scalar("eval_vae/kl_loss", kl_loss, self.vae_eval_step)
+        self.writer.add_scalar("eval_vae/tot_loss", tot_loss, self.vae_eval_step)
+        self.writer.add_scalar("eval_vae/beta", beta, self.vae_eval_step)
         self.writer.add_images(
-            'eval_vae/images', images, self.vae_eval_step, dataformats='NCHW'
+            "eval_vae/images", images, self.vae_eval_step, dataformats="NCHW"
         )
         self.writer.add_images(
-            'eval_vae/recon_images',
+            "eval_vae/recon_images",
             recon_images,
             self.vae_eval_step,
-            dataformats='NCHW',
+            dataformats="NCHW",
         )
         self.vae_eval_step += 1
 
 
-def make_env(id: int, quality='hd', race_config_args={}):
+def make_env(id: int, quality="hd", race_config_args={}):
     """
     Utility function to create an env.
 
@@ -207,13 +189,8 @@ def make_env(id: int, quality='hd', race_config_args={}):
     import gym
 
     def _init() -> gym.Env:
-        from src.env import (
-            STKAgent,
-            STKEnv,
-            STKReward,
-            SkipFrame,
-            GrayScaleObservation,
-        )
+        from src.env import (GrayScaleObservation, SkipFrame, STKAgent, STKEnv,
+                             STKReward)
 
         # TODO: don't include stkreward for vae
         env = STKAgent(
