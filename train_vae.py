@@ -1,15 +1,29 @@
+import argparse
+import os
 import random
+import time
+from pathlib import Path
+from typing import Tuple
+
 import numpy as np
+import numpy.typing as npt
+import pystk
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torchvision
 from PIL import Image
+from pystk_gym.common.race import RaceConfig
 from torch.utils.data import DataLoader, Dataset
-from torchvision import datasets, transforms
+from torch.utils.tensorboard import SummaryWriter
+from torchvision import transforms
+from tqdm import tqdm
+
+SAMPLE_RATE = 0.9
 
 
 class VQVAE(nn.Module):
-    def __init__(self, num_embeddings=512, embedding_dim=64):
+    def __init__(self, num_embeddings=1024, embedding_dim=2048):
         super(VQVAE, self).__init__()
         self.encoder = nn.Sequential(
             nn.Conv2d(3, 128, 4, stride=2, padding=1),
@@ -26,7 +40,7 @@ class VQVAE(nn.Module):
             nn.ReLU(),
             nn.ConvTranspose2d(128, 128, 4, stride=2, padding=1),
             nn.ReLU(),
-            nn.ConvTranspose2d(128, 3, 4, stride=2, padding=1),
+            nn.ConvTranspose2d(128, 1, 4, stride=2, padding=1),
             nn.Sigmoid(),
         )
 
@@ -64,122 +78,131 @@ class VQVAE(nn.Module):
         return x_recon, loss
 
 
-# Custom dataset to handle loading and transforming images
 class CustomImageDataset(Dataset):
-    def __init__(self, image_paths, transform=None):
-        self.image_paths = image_paths
+    def __init__(self, image_datas, transform=None):
+        self.image_datas = image_datas
         self.transform = transform
 
     def __len__(self):
-        return len(self.image_paths)
+        return len(self.image_datas)
 
     def __getitem__(self, idx):
-        image = Image.open(self.image_paths[idx]).convert("RGB")
+        # TODO: process and split the data here
+        image = self.image_datas[idx]
         if self.transform:
             image = self.transform(image)
         return image
 
 
-def generate_images():
-    import time
+def generate_images(
+    graphic_config: pystk.GraphicsConfig,
+    race_config: pystk.RaceConfig,
+    sample_rate: float,
+) -> npt.NDArray[np.float32]:
+    datas = []
+    total_samples = 64
+    race, state, steps, t0 = None, None, 0, 0
+    pbar = tqdm(total=total_samples)
 
-    import pystk
-    import numpy as np
-    from pystk_gym.common.race import RaceConfig
-    from PIL import Image
+    while pbar.n < total_samples:
+        if (race is None or state is None) or any(
+            kart.finish_time > 0 for kart in state.karts
+        ):
+            if race is not None:
+                race.stop()
+                del race
+                pystk.clean()
 
-    config = pystk.GraphicsConfig.hd()
-    config.screen_width = 800
-    config.screen_height = 600
-    pystk.init(config)
+            pystk.init(graphic_config)
+            race = pystk.Race(race_config)
+            race.start()
+            race.step()
 
-    num_players = 2
-    config = pystk.RaceConfig()
-    config.laps = 1
-    config.num_kart = num_players
-    config.players[0].kart = np.random.choice(RaceConfig.KARTS)
-    config.players[0].controller = pystk.PlayerConfig.Controller.AI_CONTROL
+            state = pystk.WorldState()
+            state.update()
+            t0 = time.time()
+            steps = 0
+
+        race.step()
+        state.update()
+
+        for kart_render_data in race.render_data:
+            if random.random() < sample_rate:
+                img = np.array(
+                    Image.fromarray(kart_render_data.image).convert("L")
+                ) / np.float32(255.0)
+                depth = kart_render_data.depth
+                instance = (kart_render_data.instance & 0xFFFFFF).astype(np.float32)
+                # semantic = (kart_render_data.instance >> 24) & 0xFF
+                data = np.dstack((img, depth, instance))
+                datas.append(data)
+                pbar.update(1)
+
+        steps += 1
+        delta_d = steps * race_config.step_size - (time.time() - t0)
+        if delta_d > 0:
+            time.sleep(delta_d)
+
+    if race is not None:
+        race.stop()
+        del race
+        pystk.clean()
+    return np.array(datas)
+
+
+def get_pystk_configs() -> Tuple[pystk.GraphicsConfig, pystk.RaceConfig]:
+    graphic_config = pystk.GraphicsConfig.hd()
+    graphic_config.screen_width = 960
+    graphic_config.screen_height = 540
+
+    num_players = 5
+    race_config = pystk.RaceConfig()
+    race_config.laps = 1
+    race_config.num_kart = num_players
+    race_config.players[0].kart = np.random.choice(RaceConfig.KARTS)
+    race_config.players[0].controller = pystk.PlayerConfig.Controller.AI_CONTROL
 
     for _ in range(1, num_players):
-        config.players.append(
+        race_config.players.append(
             pystk.PlayerConfig(
                 np.random.choice(RaceConfig.KARTS),
                 pystk.PlayerConfig.Controller.AI_CONTROL,
                 0,
             )
         )
-    config.track = np.random.choice(RaceConfig.TRACKS)
-    config.step_size = 0.345
+    race_config.track = np.random.choice(RaceConfig.TRACKS)
+    race_config.step_size = 0.345
 
-    race = pystk.Race(config)
-    race.start()
-    race.step()
-
-    state = pystk.WorldState()
-    state.update()
-    t0 = time.time()
-    n = 0
-
-    datas = []
-    while all(kart.finish_time <= 0 for kart in state.karts):
-        race.step()
-        state.update()
-
-        SAMPLE_RATE = 0.5
-        for kart_render_data in race.render_data:
-            if random.random() < SAMPLE_RATE:
-                img = np.array(
-                    Image.fromarray(kart_render_data.image).convert("L")
-                ) / np.float32(255.0)
-                depth = kart_render_data.depth
-                instance = kart_render_data.instance.astype(np.float32)
-                data = np.dstack([img, depth, instance])
-                datas.append(data)
-                print(len(datas))
-                # instance = kart_render_data.instance & 0xFFFFFF
-                # semantic = (kart_render_data.instance >> 24) & 0xFF
-
-        # Make sure we play in real time
-        n += 1
-        delta_d = n * config.step_size - (time.time() - t0)
-        if delta_d > 0:
-            time.sleep(delta_d)
-
-    race.stop()
-    del race
-    pystk.clean()
-    return datas
+    return (graphic_config, race_config)
 
 
-def main():
-    datas = generate_images()
-    print(np.array(datas).shape)
-    exit(0)
+def main(args):
+    graphic_config, race_config = get_pystk_configs()
+    datas = generate_images(graphic_config, race_config, SAMPLE_RATE)
+    print(datas.shape)
 
-    # Set device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = args.device
+    if device == "cuda":
+        assert torch.cuda.is_available(), "cuda is not is_available"
 
-    # Load dataset
-    transform = transforms.Compose(
-        [transforms.Resize((540, 960)), transforms.ToTensor()]
-    )
-
-    # Assuming you have a list of image file paths
-    image_paths = ["/path/to/image1.jpg", "/path/to/image2.jpg", ...]
-    dataset = CustomImageDataset(image_paths, transform=transform)
+    # TODO: should i mmap the data and read it later?
+    transform = transforms.Compose([transforms.ToTensor()])
+    dataset = CustomImageDataset(datas, transform=transform)
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True, num_workers=2)
 
-    # Initialize model, optimizer and loss function
+    tensorboard_file_name = args.log_dir.joinpath(f"vae/{args.zdim}-{args.loss_fn}/")
+    logger = SummaryWriter(tensorboard_file_name, flush_secs=60)
+
     model = VQVAE().to(device)
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
     num_epochs = 10
 
-    for epoch in range(num_epochs):
+    for epoch in tqdm(range(num_epochs)):
         model.train()
         train_loss = 0.0
 
-        for images in dataloader:
+        for images in tqdm(dataloader):
             images = images.to(device)
             optimizer.zero_grad()
             recon_images, loss = model(images)
@@ -188,8 +211,46 @@ def main():
             train_loss += loss.item()
 
         train_loss /= len(dataloader)
+        # model.eval()
+        # decoded = model.decode(model.encode(images))
+        # Image.fromarray(decoded.cpu().detach().numpy()[0].astype(np.uint8).transpose(1, 2, 0) * 255).show()
+        # torchvision.transforms.functional.to_pil_image(decoded.cpu().detach().numpy()[0].astype(np.uint8)).show()
         print(f"Epoch {epoch + 1}, Loss: {train_loss}")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--num_players", type=int, default=5)
+
+    # model args
+    parser.add_argument(
+        "--model_path", type=Path, default=None, help="Load model from path."
+    )
+    parser.add_argument("--zdim", type=float, default=256)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--seed", type=int, default=1337)
+
+    # train args
+    parser.add_argument("--clip", type=float, default=0.5)
+    parser.add_argument("--eval_size", type=int, default=64)
+    parser.add_argument("--eval_interval", type=int, default=10)
+    parser.add_argument("--per_env_sample", type=int, default=256)
+    parser.add_argument("--mini_batch_size", type=int, default=16)
+    parser.add_argument("--beta_anneal_interval", type=int, default=15)
+    parser.add_argument("--loss_fn", type=str, choices=["mse", "bce"], default="bce")
+    parser.add_argument("--device", type=str, choices=["cpu", "cuda"], default="cuda")
+    parser.add_argument(
+        "--log_dir",
+        type=Path,
+        default=os.path.join(Path(__file__).absolute().parent, "tensorboard"),
+        help="Path to the directory in which the tensorboard logs are saved.",
+    )
+    parser.add_argument(
+        "--save_dir",
+        type=Path,
+        default=os.path.join(Path(__file__).absolute().parent, "models"),
+        help="Path to the directory in which the trained models are saved.",
+    )
+    args = parser.parse_args()
+
+    main(args)
