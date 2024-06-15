@@ -133,12 +133,13 @@ def cmap_semantic_image(img: Image.Image) -> np.ndarray:
     return np.array(img.convert("L"))
 
 
-def get_pystk_configs() -> Tuple[pystk.GraphicsConfig, pystk.RaceConfig]:
+def get_pystk_configs(
+    num_players: int,
+) -> Tuple[pystk.GraphicsConfig, pystk.RaceConfig]:
     graphic_config = pystk.GraphicsConfig.hd()
     graphic_config.screen_width = 960
     graphic_config.screen_height = 540
 
-    num_players = 4
     race_config = pystk.RaceConfig()
     race_config.laps = 1
     race_config.num_kart = num_players
@@ -159,7 +160,7 @@ def get_pystk_configs() -> Tuple[pystk.GraphicsConfig, pystk.RaceConfig]:
     return (graphic_config, race_config)
 
 
-def generate_images(
+def generate_data(
     graphic_config: pystk.GraphicsConfig,
     race_config: pystk.RaceConfig,
     sample_rate: float,
@@ -191,7 +192,6 @@ def generate_images(
         state.update()
 
         if random.random() < sample_rate:
-            # TODO: replace with num_players from config
             samples += race_config.num_kart
             for kart_render_data in race.render_data:
                 img = np.array(
@@ -218,55 +218,94 @@ def generate_images(
 
 
 def main(args):
-    graphic_config, race_config = get_pystk_configs()
-    datas = generate_images(graphic_config, race_config, SAMPLE_RATE, 16)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    criterion = nn.MSELoss()
+    model = VQVAE().to(device)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
-    # TODO: should i mmap the data and read it later?
-    # transform = transforms.Compose([transforms.ToTensor()])
-    dataset = CustomImageDataset(datas, transform=None)
-    dataloader = DataLoader(dataset, batch_size=2, shuffle=True, num_workers=1)
-    dataloader_len = len(dataloader)
-
-    tensorboard_file_name = args.log_dir.joinpath(f"vae/{args.zdim}-{args.loss_fn}/")
+    tensorboard_file_name = args.log_dir.joinpath("vae")
     logger = SummaryWriter(tensorboard_file_name, flush_secs=30)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = VQVAE().to(device)
-    # model = model.half()
-    # model = torch.compile(model)
-    # traced_model = torch.jit.trace(model, torch.from_numpy(datas[:2]).to("cuda"))
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
-    criterion = nn.MSELoss()
+    start_epoch = 0
+    if args.model_path and args.model_path.exists():
+        checkpoint = torch.load(args.model_path)
+        start_epoch = checkpoint["epoch"]
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    elif args.model_path and not args.model_path.exists():
+        print(f"{args.model_path} does not exist")
 
-    epochs = 20
-    epoch_progress_bar = tqdm(range(epochs), position=0, desc="Loss: inf")
+    epochs = 1000
+    epoch_progress_bar = tqdm(range(start_epoch, epochs), position=0, desc="Loss: inf")
 
     for epoch in epoch_progress_bar:
+        if epoch != start_epoch and epoch % args.eval_interval == 0:
+            model.eval()
+            graphic_config, race_config = get_pystk_configs(args.num_players)
+            datas = generate_data(graphic_config, race_config, SAMPLE_RATE, 16)
+            datas = torch.from_numpy(datas)
+            with torch.no_grad():
+                recon_images = torch.cat(
+                    [
+                        F.interpolate(
+                            model(batch_imgs.cuda())[0].cpu(),
+                            (540, 960),
+                            mode="nearest",
+                        ).squeeze(dim=1)
+                        for batch_imgs in datas.split(args.batch_size)
+                    ]
+                ).unsqueeze(1)
+            logger.add_images(
+                "eval_vae/images", datas[:, :1, :, :].numpy(), epoch, dataformats="NCHW"
+            )
+            logger.add_images(
+                "eval_vae/recon_images",
+                recon_images,
+                epoch,
+                dataformats="NCHW",
+            )
+
+        if epoch != start_epoch and epoch % args.save_interval == 0:
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                },
+                args.save_dir.joinpath(f"vae_{epoch}.pth"),
+            )
+
+        # collect data
+        graphic_config, race_config = get_pystk_configs(args.num_players)
+        datas = generate_data(
+            graphic_config, race_config, SAMPLE_RATE, args.max_samples
+        )
+        datas = torch.from_numpy(datas)
+        dataset = CustomImageDataset(datas, transform=None)
+        dataloader = DataLoader(
+            dataset, batch_size=args.batch_size, shuffle=True, num_workers=1
+        )
+        dataloader_len = len(dataloader)
+
+        # setup training
         model.train()
         train_loss = 0.0
         dataloader_progress_bar = tqdm(
             dataloader, position=1, leave=False, desc="Loss: inf"
         )
 
+        # train
         for batch_idx, images in enumerate(dataloader_progress_bar):
             images = images.to(device)
-            # images = images.half()
             grayscale_images = images[:, 0, :, :]
-            # img = transforms.functional.to_pil_image(
-            #     grayscale_images.float().cpu().detach().numpy()[0]
-            # )
-            # img.show()
-
-            # optimizer.zero_grad()
-            for param in model.parameters():
-                param.grad = None
+            optimizer.zero_grad()
 
             outputs, z_e, z_q = model(images)
             recons = F.interpolate(outputs, (540, 960), mode="nearest").squeeze(dim=1)
-            reconstruction_loss = criterion(recons, grayscale_images)
+            recon_loss = criterion(recons, grayscale_images)
             commitment_loss = torch.mean((z_e - z_q.detach()) ** 2)
             vq_loss = torch.mean((z_q - z_e.detach()) ** 2)
-            loss = reconstruction_loss + commitment_loss + vq_loss
+            loss = recon_loss + commitment_loss + vq_loss
 
             loss.backward()
             optimizer.step()
@@ -274,40 +313,46 @@ def main(args):
             loss_cpu = loss.item()
             train_loss += loss_cpu
             logger.add_scalar(
-                "Loss/Batch", loss_cpu, epoch * dataloader_len + batch_idx
+                "train_vae/recon_loss",
+                recon_loss.item(),
+                epoch * dataloader_len + batch_idx,
+            )
+            logger.add_scalar(
+                "train_vae/commitment_loss",
+                commitment_loss.item(),
+                epoch * dataloader_len + batch_idx,
+            )
+            logger.add_scalar(
+                "train_vae/vq_loss",
+                vq_loss.item(),
+                epoch * dataloader_len + batch_idx,
+            )
+            logger.add_scalar(
+                "train_vae/batch_loss", loss_cpu, epoch * dataloader_len + batch_idx
             )
             dataloader_progress_bar.set_description(f"Loss: {loss_cpu:.6f}")
 
         train_loss /= dataloader_len
-        logger.add_scalar("Loss/Epoch", train_loss, epoch)
+        logger.add_scalar("train_vae/epoch_loss", train_loss, epoch)
         epoch_progress_bar.set_description(f"Loss: {train_loss:.6f}")
-        # model.eval()
-        # decoded = model.decode(model.encode(images))
-        # Image.fromarray(decoded.cpu().detach().numpy()[0].astype(np.uint8).transpose(1, 2, 0) * 255).show()
-        # transforms.functional.to_pil_image(decoded.cpu().detach().numpy()[0].astype(np.uint8)).show()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_players", type=int, default=5)
+    parser.add_argument("--num_players", type=int, default=4)
 
     # model args
     parser.add_argument(
         "--model_path", type=Path, default=None, help="Load model from path."
     )
-    parser.add_argument("--zdim", type=float, default=256)
     parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--seed", type=int, default=1337)
 
     # train args
-    parser.add_argument("--clip", type=float, default=0.5)
-    parser.add_argument("--eval_size", type=int, default=64)
+    parser.add_argument("--batch_size", type=int, default=2)
+    parser.add_argument("--max_samples", type=int, default=256)
     parser.add_argument("--eval_interval", type=int, default=10)
-    parser.add_argument("--per_env_sample", type=int, default=256)
-    parser.add_argument("--mini_batch_size", type=int, default=16)
+    parser.add_argument("--save_interval", type=int, default=25)
     parser.add_argument("--beta_anneal_interval", type=int, default=15)
-    parser.add_argument("--loss_fn", type=str, choices=["mse", "bce"], default="bce")
-    parser.add_argument("--device", type=str, choices=["cpu", "cuda"], default="cuda")
     parser.add_argument(
         "--log_dir",
         type=Path,
