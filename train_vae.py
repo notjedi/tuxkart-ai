@@ -1,4 +1,5 @@
 import argparse
+import multiprocessing as mp
 import os
 import random
 import time
@@ -16,7 +17,6 @@ from PIL import Image
 from pystk_gym.common.race import RaceConfig
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.tensorboard import SummaryWriter
-from torchvision import transforms
 from tqdm import tqdm
 
 SAMPLE_RATE = 0.9
@@ -91,6 +91,7 @@ class VQVAE(nn.Module):
             nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
             nn.ConvTranspose2d(64, 1, kernel_size=3, stride=2, padding=1),
+            # nn.Sigmoid()
         )
 
         self.embeddings = nn.Embedding(num_embeddings, embedding_dim)
@@ -163,9 +164,10 @@ def get_pystk_configs(
 def generate_data(
     graphic_config: pystk.GraphicsConfig,
     race_config: pystk.RaceConfig,
+    result_queue: mp.Queue,
     sample_rate: float,
     max_samples: int = 64,
-) -> npt.NDArray[np.float32]:
+):
     datas, samples = [], 0
     race, state, steps, t0 = None, None, 0, 0
 
@@ -214,7 +216,75 @@ def generate_data(
         race.stop()
         del race
         pystk.clean()
-    return np.array(datas)
+    result_queue.put(np.array(datas))
+
+
+def log_train_verbose(
+    logger: SummaryWriter,
+    epoch: int,
+    orig_imgs: npt.NDArray[np.float32],
+):
+    logger.add_images(
+        "train_vae/grayscale_imgs",
+        orig_imgs[:, :1, :, :],
+        epoch,
+        dataformats="NCHW",
+    )
+    logger.add_images(
+        "train_vae/depth_imgs",
+        orig_imgs[:, 1:2, :, :],
+        epoch,
+        dataformats="NCHW",
+    )
+    logger.add_images(
+        "train_vae/semantic_imgs",
+        orig_imgs[:, 2:, :, :],
+        epoch,
+        dataformats="NCHW",
+    )
+
+
+def log_train_tensorboard(
+    logger: SummaryWriter,
+    epoch: int,
+    recon_loss: float = 0.0,
+    commitment_loss: float = 0.0,
+    vq_loss: float = 0.0,
+    batch_loss: float = 0.0,
+):
+    logger.add_scalar(
+        "train_vae/recon_loss",
+        recon_loss,
+        epoch,
+    )
+    logger.add_scalar(
+        "train_vae/commitment_loss",
+        commitment_loss,
+        epoch,
+    )
+    logger.add_scalar(
+        "train_vae/vq_loss",
+        vq_loss,
+        epoch,
+    )
+    logger.add_scalar("train_vae/batch_loss", batch_loss, epoch)
+
+
+def log_eval_tensorboard(
+    logger: SummaryWriter,
+    epoch: int,
+    orig_imgs: npt.NDArray[np.float32],
+    recon_imgs: npt.NDArray[np.float32],
+):
+    logger.add_images(
+        "eval_vae/images", orig_imgs[:, :1, :, :], epoch, dataformats="NCHW"
+    )
+    logger.add_images(
+        "eval_vae/recon_images",
+        recon_imgs,
+        epoch,
+        dataformats="NCHW",
+    )
 
 
 def main(args):
@@ -236,34 +306,36 @@ def main(args):
         print(f"{args.model_path} does not exist")
 
     epochs = 1000
+    result_queue = mp.Queue()
     epoch_progress_bar = tqdm(range(start_epoch, epochs), position=0, desc="Loss: inf")
 
     for epoch in epoch_progress_bar:
         if epoch != start_epoch and epoch % args.eval_interval == 0:
             model.eval()
             graphic_config, race_config = get_pystk_configs(args.num_players)
-            datas = generate_data(graphic_config, race_config, SAMPLE_RATE, 16)
-            datas = torch.from_numpy(datas)
+            process = mp.Process(
+                target=generate_data,
+                args=(graphic_config, race_config, result_queue, SAMPLE_RATE, 16),
+            )
+            process.start()
+            imgs = result_queue.get()
+            orig_imgs = torch.from_numpy(imgs)
             with torch.no_grad():
-                recon_images = torch.cat(
-                    [
-                        F.interpolate(
-                            model(batch_imgs.cuda())[0].cpu(),
-                            (540, 960),
-                            mode="nearest",
-                        ).squeeze(dim=1)
-                        for batch_imgs in datas.split(args.batch_size)
-                    ]
-                ).unsqueeze(1)
-            logger.add_images(
-                "eval_vae/images", datas[:, :1, :, :].numpy(), epoch, dataformats="NCHW"
-            )
-            logger.add_images(
-                "eval_vae/recon_images",
-                recon_images,
-                epoch,
-                dataformats="NCHW",
-            )
+                recon_imgs = (
+                    torch.cat(
+                        [
+                            F.interpolate(
+                                model(batch_imgs.cuda())[0],
+                                (540, 960),
+                                mode="nearest",
+                            ).squeeze(dim=1)
+                            for batch_imgs in orig_imgs.split(args.batch_size)
+                        ]
+                    )
+                    .unsqueeze(1)
+                    .cpu()
+                ).numpy()
+            log_eval_tensorboard(logger, epoch, imgs, recon_imgs)
 
         if epoch != start_epoch and epoch % args.save_interval == 0:
             torch.save(
@@ -277,11 +349,22 @@ def main(args):
 
         # collect data
         graphic_config, race_config = get_pystk_configs(args.num_players)
-        datas = generate_data(
-            graphic_config, race_config, SAMPLE_RATE, args.max_samples
+        process = mp.Process(
+            target=generate_data,
+            args=(
+                graphic_config,
+                race_config,
+                result_queue,
+                SAMPLE_RATE,
+                args.max_samples,
+            ),
         )
-        datas = torch.from_numpy(datas)
-        dataset = CustomImageDataset(datas, transform=None)
+        process.start()
+        orig_imgs = result_queue.get()
+        if args.verbose:
+            log_train_verbose(logger, epoch, orig_imgs)
+        orig_imgs = torch.from_numpy(orig_imgs)
+        dataset = CustomImageDataset(orig_imgs, transform=None)
         dataloader = DataLoader(
             dataset, batch_size=args.batch_size, shuffle=True, num_workers=1
         )
@@ -310,27 +393,17 @@ def main(args):
             loss.backward()
             optimizer.step()
             # torch.cuda.empty_cache()
-            loss_cpu = loss.item()
-            train_loss += loss_cpu
-            logger.add_scalar(
-                "train_vae/recon_loss",
+            batch_loss = loss.item()
+            train_loss += batch_loss
+            log_train_tensorboard(
+                logger,
+                epoch * dataloader_len + batch_idx,
                 recon_loss.item(),
-                epoch * dataloader_len + batch_idx,
-            )
-            logger.add_scalar(
-                "train_vae/commitment_loss",
                 commitment_loss.item(),
-                epoch * dataloader_len + batch_idx,
-            )
-            logger.add_scalar(
-                "train_vae/vq_loss",
                 vq_loss.item(),
-                epoch * dataloader_len + batch_idx,
+                batch_loss,
             )
-            logger.add_scalar(
-                "train_vae/batch_loss", loss_cpu, epoch * dataloader_len + batch_idx
-            )
-            dataloader_progress_bar.set_description(f"Loss: {loss_cpu:.6f}")
+            dataloader_progress_bar.set_description(f"Loss: {batch_loss:.6f}")
 
         train_loss /= dataloader_len
         logger.add_scalar("train_vae/epoch_loss", train_loss, epoch)
@@ -340,6 +413,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_players", type=int, default=4)
+    parser.add_argument("-v", "--verbose", action="store_true", default=False)
 
     # model args
     parser.add_argument(
