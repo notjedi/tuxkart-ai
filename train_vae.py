@@ -442,8 +442,8 @@ if __name__ == "__main__":
     # train args
     parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--max_samples", type=int, default=256)
-    parser.add_argument("--eval_interval", type=int, default=10)
-    parser.add_argument("--save_interval", type=int, default=25)
+    parser.add_argument("--eval_interval", type=int, default=25)
+    parser.add_argument("--save_interval", type=int, default=50)
     parser.add_argument("--beta_anneal_interval", type=int, default=200)
     parser.add_argument(
         "--log_dir",
