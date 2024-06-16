@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader, Dataset
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-SAMPLE_RATE = 0.9
+INPUT_WIDTH, INPUT_HEIGHT = (960, 540)
 CLASS_COLOR = (
     (
         # https://pystk.readthedocs.io/en/latest/data.html#pystk.ObjectType
@@ -91,7 +91,7 @@ class VQVAE(nn.Module):
             nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
             nn.ConvTranspose2d(64, 1, kernel_size=3, stride=2, padding=1),
-            # nn.Sigmoid()
+            nn.Sigmoid(),
         )
 
         self.embeddings = nn.Embedding(num_embeddings, embedding_dim)
@@ -138,8 +138,8 @@ def get_pystk_configs(
     num_players: int,
 ) -> Tuple[pystk.GraphicsConfig, pystk.RaceConfig]:
     graphic_config = pystk.GraphicsConfig.hd()
-    graphic_config.screen_width = 960
-    graphic_config.screen_height = 540
+    graphic_config.screen_width = INPUT_WIDTH
+    graphic_config.screen_height = INPUT_HEIGHT
 
     race_config = pystk.RaceConfig()
     race_config.laps = 1
@@ -287,6 +287,19 @@ def log_eval_tensorboard(
     )
 
 
+def save_model(
+    epoch: int, model: nn.Module, optimizer: optim.Optimizer, save_path: Path
+):
+    torch.save(
+        {
+            "epoch": epoch,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+        },
+        save_path,
+    )
+
+
 def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     criterion = nn.MSELoss()
@@ -296,6 +309,7 @@ def main(args):
     tensorboard_file_name = args.log_dir.joinpath("vae")
     logger = SummaryWriter(tensorboard_file_name, flush_secs=30)
 
+    gamma = 0.5
     start_epoch = 0
     if args.model_path and args.model_path.exists():
         checkpoint = torch.load(args.model_path)
@@ -304,6 +318,12 @@ def main(args):
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     elif args.model_path and not args.model_path.exists():
         print(f"{args.model_path} does not exist")
+    lr_scheduler = optim.lr_scheduler.StepLR(
+        optimizer,
+        step_size=args.beta_anneal_interval,
+        gamma=gamma,
+        last_epoch=-1 if start_epoch == 0 else start_epoch,
+    )
 
     epochs = 1000
     result_queue = mp.Queue()
@@ -315,18 +335,18 @@ def main(args):
             graphic_config, race_config = get_pystk_configs(args.num_players)
             process = mp.Process(
                 target=generate_data,
-                args=(graphic_config, race_config, result_queue, SAMPLE_RATE, 16),
+                args=(graphic_config, race_config, result_queue, random.random(), 16),
             )
             process.start()
-            imgs = result_queue.get()
-            orig_imgs = torch.from_numpy(imgs)
+            orig_imgs = result_queue.get()
+            orig_imgs = torch.from_numpy(orig_imgs)
             with torch.no_grad():
                 recon_imgs = (
                     torch.cat(
                         [
                             F.interpolate(
                                 model(batch_imgs.cuda())[0],
-                                (540, 960),
+                                (INPUT_HEIGHT, INPUT_WIDTH),
                                 mode="nearest",
                             ).squeeze(dim=1)
                             for batch_imgs in orig_imgs.split(args.batch_size)
@@ -335,16 +355,11 @@ def main(args):
                     .unsqueeze(1)
                     .cpu()
                 ).numpy()
-            log_eval_tensorboard(logger, epoch, imgs, recon_imgs)
+            log_eval_tensorboard(logger, epoch, orig_imgs.numpy(), recon_imgs)
 
         if epoch != start_epoch and epoch % args.save_interval == 0:
-            torch.save(
-                {
-                    "epoch": epoch,
-                    "model_state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                },
-                args.save_dir.joinpath(f"vae_{epoch}.pth"),
+            save_model(
+                epoch, model, optimizer, args.save_dir.joinpath(f"vae_{epoch}.pth")
             )
 
         # collect data
@@ -355,7 +370,7 @@ def main(args):
                 graphic_config,
                 race_config,
                 result_queue,
-                SAMPLE_RATE,
+                random.random(),
                 args.max_samples,
             ),
         )
@@ -384,14 +399,17 @@ def main(args):
             optimizer.zero_grad()
 
             outputs, z_e, z_q = model(images)
-            recons = F.interpolate(outputs, (540, 960), mode="nearest").squeeze(dim=1)
-            recon_loss = criterion(recons, grayscale_images)
+            recon_imgs = F.interpolate(
+                outputs, (INPUT_HEIGHT, INPUT_WIDTH), mode="nearest"
+            ).squeeze(dim=1)
+            recon_loss = criterion(recon_imgs, grayscale_images)
             commitment_loss = torch.mean((z_e - z_q.detach()) ** 2)
             vq_loss = torch.mean((z_q - z_e.detach()) ** 2)
             loss = recon_loss + commitment_loss + vq_loss
 
             loss.backward()
             optimizer.step()
+            lr_scheduler.step()
             # torch.cuda.empty_cache()
             batch_loss = loss.item()
             train_loss += batch_loss
@@ -416,17 +434,17 @@ if __name__ == "__main__":
     parser.add_argument("-v", "--verbose", action="store_true", default=False)
 
     # model args
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument(
         "--model_path", type=Path, default=None, help="Load model from path."
     )
-    parser.add_argument("--lr", type=float, default=1e-4)
 
     # train args
     parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--max_samples", type=int, default=256)
     parser.add_argument("--eval_interval", type=int, default=10)
     parser.add_argument("--save_interval", type=int, default=25)
-    parser.add_argument("--beta_anneal_interval", type=int, default=15)
+    parser.add_argument("--beta_anneal_interval", type=int, default=200)
     parser.add_argument(
         "--log_dir",
         type=Path,
